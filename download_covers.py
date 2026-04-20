@@ -30,7 +30,9 @@ from typing import Optional
 # ── Konfiguration ────────────────────────────────────────────────────────────
 
 LAST_FM_API_KEY = os.environ.get("LAST_FM_API_KEY", "")   # optional
-OUTPUT_DIR      = Path("covers")
+OUTPUT_DIR       = Path("covers")
+ORIGINAL_DIR     = Path("covers/original")
+LOCAL_SEARCH_DIR = Path("covers/search_local")
 THUMB_SIZE      = 300           # Breite der Thumbnail-Version in Pixel
 MAX_ORIGINAL_WIDTH = 1400       # Maximale Breite für das "Original"-Cover
 DELAY_BETWEEN   = 1.0           # Sekunden zwischen API-Anfragen (Rate-Limit)
@@ -207,8 +209,9 @@ def download_cover(album_info: dict, output_dir: Path) -> tuple[bool, Optional[s
     album  = album_info["album"]
     filename = f"{sanitize_filename(artist)} - {sanitize_filename(album)}.jpg"
     filepath = output_dir / filename
+    orig_path = ORIGINAL_DIR / filename
 
-    if filepath.exists():
+    if orig_path.exists() or filepath.exists():
         return True, "Bereits vorhanden", filename
 
     log.info("Suche Cover: %s – %s", artist, album)
@@ -233,6 +236,24 @@ def download_cover(album_info: dict, output_dir: Path) -> tuple[bool, Optional[s
         cleaned_artist = artist.split(",")[0].strip()
         log.info("  → Kein Treffer. Versuche Fallback: %s", cleaned_artist)
         result = try_all_apis(cleaned_artist, album)
+        
+    # 3. Fallback to local search if all APIs failed
+    if not result:
+        # Try full name first
+        local_path = LOCAL_SEARCH_DIR / filename
+        if local_path.exists():
+            log.info("  → Gefunden in lokalem Ordner: %s", LOCAL_SEARCH_DIR)
+            data = local_path.read_bytes()
+            result = (data, "search_local")
+        # Try split name (before comma) as fallback
+        elif "," in artist:
+            cleaned_artist = artist.split(",")[0].strip()
+            clean_filename = f"{sanitize_filename(cleaned_artist)} - {sanitize_filename(album)}.jpg"
+            local_path = LOCAL_SEARCH_DIR / clean_filename
+            if local_path.exists():
+                log.info("  → Gefunden in lokalem Ordner (Fallback): %s", LOCAL_SEARCH_DIR)
+                data = local_path.read_bytes()
+                result = (data, "search_local")
 
     if result:
         data, source = result
@@ -249,23 +270,30 @@ def save_cover(data: bytes, filepath: Path, output_dir: Path, filename: str):
         from PIL import Image
         import io
         img = Image.open(io.BytesIO(data)).convert("RGB")
+        
+        # Original in covers/original/
+        orig_dir = ORIGINAL_DIR
+        orig_dir.mkdir(parents=True, exist_ok=True)
+        orig_filepath = orig_dir / filename
         if img.width > MAX_ORIGINAL_WIDTH:
             new_h = round(img.height * MAX_ORIGINAL_WIDTH / img.width)
             img = img.resize((MAX_ORIGINAL_WIDTH, new_h), Image.LANCZOS)
-            img.save(filepath, "JPEG", quality=95)
+            img.save(orig_filepath, "JPEG", quality=95)
         else:
-            filepath.write_bytes(data)
+            orig_filepath.write_bytes(data)
         
-        # Thumbnail
+        # Thumbnail in covers/thumbs/ (WebP)
         thumb_dir = output_dir / "thumbs"
         thumb_dir.mkdir(exist_ok=True)
         new_h_thumb = round(img.height * THUMB_SIZE / img.width)
         thumb = img.resize((THUMB_SIZE, new_h_thumb), Image.LANCZOS)
-        thumb.save(thumb_dir / filename, "JPEG", quality=85)
-        log.info("  → Original gespeichert: %s", filename)
-        log.info("  → Thumbnail (%dx%dpx) gespeichert in thumbs/", THUMB_SIZE, new_h_thumb)
+        thumb_filename = Path(filename).stem + ".webp"
+        thumb.save(thumb_dir / thumb_filename, "WEBP", quality=85)
+        log.info("  → Original gespeichert in original/: %s", filename)
+        log.info("  → Thumbnail (%dx%dpx) als WebP gespeichert in thumbs/", THUMB_SIZE, new_h_thumb)
     except ImportError:
-        filepath.write_bytes(data)
+        ORIGINAL_DIR.mkdir(parents=True, exist_ok=True)
+        (ORIGINAL_DIR / filename).write_bytes(data)
         log.error("! Fehler beim Verarbeiten des Originals: No module named 'PIL'")
     except Exception as e:
         log.error("! Fehler beim Thumbnail: %s", e)

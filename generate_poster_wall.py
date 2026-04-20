@@ -204,7 +204,7 @@ def generate_html(input_file, output_file):
         added = tags.get('ADDED', '')
         link = tags.get('LINK', '')
 
-        thumb_name = f"{sanitize_filename(artist)} - {sanitize_filename(album)}.jpg"
+        thumb_name = f"{sanitize_filename(artist)} - {sanitize_filename(album)}.webp"
         thumb_path = THUMB_DIR / thumb_name
         
         img_html = ""
