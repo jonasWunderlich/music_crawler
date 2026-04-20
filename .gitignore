@@ -1,0 +1,6 @@
+__pycache__
+.venv/
+covers/
+_*.txt
+*.html
+download_log.json
