@@ -129,7 +129,6 @@ body {
     overflow: hidden;
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
     transition: transform 0.3s, box-shadow 0.3s;
-    cursor: pointer;
 }
 
 .album-poster:hover {
@@ -150,6 +149,7 @@ body {
     left: 0;
     right: 0;
     background: linear-gradient(transparent, rgba(0, 0, 0, 0.95) 60%);
+    background: rgba(0, 0, 0, 0.6);
     padding: 20px 15px 15px 15px;
     display: flex;
     flex-direction: column;
@@ -273,12 +273,19 @@ body {
     top: 30%;
     left: 50%;
     transform: translate(-50%, -50%);
-    font-size: 40px;
-    opacity: 0.35;
+    font-size: 30px;
+    opacity: 0.85;
     color: rgb(255, 255, 255);
     pointer-events: none;
     z-index: 1;
     transition: opacity 0.3s, transform 0.3s;
+    background-color: rgba(0, 0, 0, 0.7);
+    border-radius: 50%;
+    height: 50px;
+    width: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .album-poster:hover .link-watermark {

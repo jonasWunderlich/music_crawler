@@ -238,7 +238,7 @@ def generate_html(input_file, output_file):
              data-fan="{fan}"
              data-added="{html.escape(added)}">
             {img_html}
-            {f'<div class="link-watermark">🔗</div>' if link else ''}
+            {f'<div class="link-watermark">🎧</div>' if link else ''}
             <div class="tag-icons">
                 {f'<span class="tag-icon own-circle" title="Owned"></span>' if own in ['1', 'own'] else ''}
                 {f'<span class="tag-icon" title="Reissue">↻</span>' if reissue in ['1', 'reissue'] else ''}
