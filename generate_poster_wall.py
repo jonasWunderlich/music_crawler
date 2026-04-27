@@ -3,6 +3,9 @@ import re
 import os
 import html
 import time
+import json
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 import questionary
@@ -33,6 +36,54 @@ def parse_tags(text):
         data[tag_name] = value
     return data
 
+LINKS_LOG_FILE = Path("links_log.json")
+
+def load_links_log():
+    if LINKS_LOG_FILE.exists():
+        try:
+            with open(LINKS_LOG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Error loading {LINKS_LOG_FILE}: {e}")
+            return {}
+    return {}
+
+def save_links_log(log_data):
+    try:
+        with open(LINKS_LOG_FILE, "w", encoding="utf-8") as f:
+            json.dump(log_data, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        print(f"Error saving {LINKS_LOG_FILE}: {e}")
+
+def fetch_bandcamp_links(artist, album):
+    query = urllib.parse.quote(f"{artist} {album}")
+    search_url = f"https://bandcamp.com/search?q={query}"
+    
+    links = {
+        "ARTIST_LINK": "",
+        "ALBUM_LINK": "",
+        "VIDEO_LINK": ""
+    }
+    
+    try:
+        req = urllib.request.Request(search_url, headers={'User-Agent': 'Mozilla/5.0'})
+        html_content = urllib.request.urlopen(req, timeout=10).read().decode('utf-8')
+        
+        matches = re.findall(r'<div class="itemurl">.*?<a[^>]+href="([^"]+)"', html_content, re.DOTALL)
+        if matches:
+            first_url = matches[0].strip().split('?')[0]  # Remove parameters
+            if '.bandcamp.com' in first_url:
+                if '/album/' in first_url or '/track/' in first_url:
+                    links["ALBUM_LINK"] = first_url
+                    parsed_uri = urllib.parse.urlparse(first_url)
+                    links["ARTIST_LINK"] = f"https://{parsed_uri.netloc}"
+                else:
+                    links["ARTIST_LINK"] = first_url
+    except Exception as e:
+        print(f"Warning: Failed to fetch bandcamp links for {artist} - {album}: {e}")
+        
+    return links
+
 def generate_html(input_file, output_file):
     content = input_file.read_text(encoding="utf-8")
     
@@ -56,7 +107,7 @@ def generate_html(input_file, output_file):
         if not line:
             continue
             
-        if line.lower() == "*** sort":
+        if line.lower() == "*** settings":
             parsing_sort = True
             continue
         
@@ -130,7 +181,10 @@ def generate_html(input_file, output_file):
     # Inject Nav and Controls into header (body section)
     controls_row = f"""
     <div class="controls-row">
-        <input type="text" id="myInput" onkeyup="searchPosters()" placeholder="Search & Filter Records ..">
+        <div class="search-container">
+            <input type="text" id="myInput" onkeyup="searchPosters()" placeholder="Search & Filter Records ..">
+            <span class="clear-icon" onclick="clearSearch()" title="Clear">✖</span>
+        </div>
         {sort_ui}
     </div>
     """
@@ -165,6 +219,9 @@ def generate_html(input_file, output_file):
             unique_records[key] = tags
 
     html_cards = []
+    
+    links_log = load_links_log()
+    links_dirty = False
     
     # Apply initial sort
     if initial_sort == "TAG_RATING":
@@ -203,6 +260,42 @@ def generate_html(input_file, output_file):
         fan = tags.get('FAN', '0')
         added = tags.get('ADDED', '')
         link = tags.get('LINK', '')
+        tino = tags.get('TINO', '0')
+        wire = tags.get('WIRE', '0')
+
+        log_key = f"{artist} - {album}"
+        
+        current_video_tag = tags.get('VIDEO', '').strip()
+        if current_video_tag == '?':
+            current_video_tag = ''
+            
+        current_album_link_tag = tags.get('ALBUM_LINK', '').strip()
+        if current_album_link_tag == '?':
+            current_album_link_tag = ''
+
+        if log_key not in links_log:
+            print(f"Fetching links for: {log_key}")
+            links = fetch_bandcamp_links(artist, album)
+            links["VIDEO_LINK"] = current_video_tag
+            if current_album_link_tag:
+                links["ALBUM_LINK"] = current_album_link_tag
+            links_log[log_key] = links
+            links_dirty = True
+            time.sleep(1) # Be nice to Bandcamp avoiding rate limits
+        else:
+            links = links_log[log_key]
+            # Update video link in cache if the text file has a new one
+            if current_video_tag and links.get("VIDEO_LINK") != current_video_tag:
+                links["VIDEO_LINK"] = current_video_tag
+                links_dirty = True
+            # Update album link in cache if explicitly provided in text file
+            if current_album_link_tag and links.get("ALBUM_LINK") != current_album_link_tag:
+                links["ALBUM_LINK"] = current_album_link_tag
+                links_dirty = True
+        
+        artist_link = links.get("ARTIST_LINK", "")
+        album_link = links.get("ALBUM_LINK", "")
+        video_link = links.get("VIDEO_LINK", "")
 
         thumb_name = f"{sanitize_filename(artist)} - {sanitize_filename(album)}.webp"
         thumb_path = THUMB_DIR / thumb_name
@@ -211,7 +304,7 @@ def generate_html(input_file, output_file):
         if thumb_path.exists():
             img_html = f'<img src="covers/thumbs/{thumb_name}" alt="{html.escape(album)}" loading="lazy">'
         else:
-            img_html = f'<div class="no-cover">NO COVER<br>{html.escape(artist)}<br>{html.escape(album)}</div>'
+            img_html = f'<div class="no-cover">NO COVER</div>'
             missing_covers.append(tags)
 
         search_data = f"{artist} {album} {label} {country} {city} {genre} {style}".lower()
@@ -236,24 +329,28 @@ def generate_html(input_file, output_file):
              data-reissue="{reissue}"
              data-own="{own}"
              data-fan="{fan}"
+             data-tino="{tino}"
+             data-wire="{wire}"
              data-added="{html.escape(added)}">
             {img_html}
-            {f'<div class="link-watermark">🎧</div>' if link else ''}
-            <div class="tag-icons">
-                {f'<span class="tag-icon own-circle" title="Owned"></span>' if own in ['1', 'own'] else ''}
-                {f'<span class="tag-icon" title="Reissue">↻</span>' if reissue in ['1', 'reissue'] else ''}
-                {f'<span class="tag-icon" title="Fan/Favorite">❤️</span>' if fan in ['1', 'fan'] else ''}
+            {f'<div class="vinyl-overlay" title="Owned (Vinyl)"></div>' if own in ['1', 'own'] else ''}
+            <div class="top-right-icons">
+                {f'<div class="rating-circle">{rating}</div>' if rating.isdigit() and int(rating) > 0 else ''}
             </div>
+            {f'<a href="{html.escape(video_link)}" target="_blank" class="video-icon" title="Watch Video"></a>' if video_link and video_link.startswith('http') else ''}
             <div class="album-overlay">
-                <div class="album-artist" title="{html.escape(artist)}">{html.escape(artist)}</div>
-                <div class="album-title" title="{html.escape(album)}">{html.escape(album)}</div>
+                <div class="album-artist" title="{html.escape(artist)}">{f'<a href="{html.escape(artist_link)}" target="_blank">{html.escape(artist)}</a>' if artist_link else html.escape(artist)}{f'<span class="inline-icon" title="Fan/Favorite">❤️</span>' if fan in ['1', 'fan'] else ''}</div>
+                <div class="album-title" title="{html.escape(album)}">{f'<a href="{html.escape(album_link)}" target="_blank">{html.escape(album)}</a>' if album_link else html.escape(album)}{f'<span class="inline-icon" title="Reissue">↻</span>' if reissue in ['1', 'reissue'] else ''}</div>
                 <div class="album-label" title="{html.escape(label)}">{html.escape(label)}</div>
                 <div class="album-meta">
                     <div class="location">
                         <div class="album-country" title="{html.escape(country)}">{html.escape(country)}</div>
                         <div class="album-city" title="{html.escape(city)}">{html.escape(city)}</div>
                     </div>
-                    <span class="rating">{"★" * (int(rating) if rating.isdigit() else 0)}<span class="empty-star">{"☆" * (10 - int(rating) if rating.isdigit() else 0)}</span></span>
+                    <div class="genre">
+                        <div class="album-genre" title="{html.escape(genre)}">{html.escape(genre)}</div>
+                        <div class="album-style" title="{html.escape(style)}">{html.escape(style)}</div>
+                    </div>
                 </div>
             </div>
         </{tag_name}>"""
@@ -270,12 +367,35 @@ def generate_html(input_file, output_file):
 
     footer = f"""
     </div> <!-- .poster-wall -->
+    <button class="scroll-top-btn" onclick="window.scrollTo({{top: 0, behavior: 'smooth'}})">↑</button>
     <script>
+        window.onscroll = function() {{
+            var btn = document.querySelector(".scroll-top-btn");
+            if (document.body.scrollTop > 300 || document.documentElement.scrollTop > 300) {{
+                btn.style.display = "flex";
+            }} else {{
+                btn.style.display = "none";
+            }}
+        }};
+
+        function clearSearch() {{
+            var input = document.getElementById("myInput");
+            input.value = "";
+            searchPosters();
+        }}
+
         function searchPosters() {{
             var input = document.getElementById("myInput");
+            var clearIcon = document.querySelector(".clear-icon");
             var filter = input.value.toLowerCase();
-            var posters = document.getElementsByClassName("album-poster");
             
+            if (filter.length > 0) {{
+                clearIcon.style.display = "block";
+            }} else {{
+                clearIcon.style.display = "none";
+            }}
+
+            var posters = document.getElementsByClassName("album-poster");
             for (var i = 0; i < posters.length; i++) {{
                 var searchData = posters[i].getAttribute("data-search");
                 if (searchData.includes(filter)) {{
@@ -336,6 +456,10 @@ def generate_html(input_file, output_file):
 
     final_html = header + '\n    <div class="poster-wall">\n' + "\n".join(html_cards) + "\n" + footer
     output_file.write_text(final_html, encoding="utf-8")
+    
+    if links_dirty:
+        save_links_log(links_log)
+        
     print(f"Success! {len(html_cards)} albums processed. Created {output_file}")
     return missing_covers
 
