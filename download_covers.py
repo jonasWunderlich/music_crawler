@@ -25,7 +25,15 @@ import urllib.parse
 import urllib.request
 import urllib.error
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict, Tuple
+import shutil
+
+# Fuzzy search
+try:
+    from thefuzz import fuzz, process
+except ImportError:
+    fuzz = None
+    process = None
 
 # ── Konfiguration ────────────────────────────────────────────────────────────
 
@@ -37,8 +45,17 @@ THUMB_SIZE       = 400           # Breite der Thumbnail-Version in Pixel
 MAX_ORIGINAL_WIDTH = 1400       # Maximale Breite für das "Original"-Cover
 DELAY_BETWEEN   = 1.0           # Sekunden zwischen API-Anfragen (Rate-Limit)
 INPUT_FILE      = Path("music.html")
-LOG_FILE        = Path("download_log.json")
+LOG_DIR            = Path("log")
 USER_AGENT      = "MusicCoverDownloader/1.0 (github.com/example)"
+
+# New Structure
+ALBUM_COVERS_ORG   = Path("album_covers/org")
+ALBUM_COVERS_THUMB = Path("export/thumb")
+LISTS_DIR          = Path("lists")
+EXPORT_DIR         = Path("export")
+LOG_DIR            = Path("log")
+FUZZY_THRESHOLD    = 90  # Tolerance for fuzzy search (0-100)
+LEGACY_LOG_FILE    = Path("log/legacy/download_status.json")
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 
@@ -67,24 +84,44 @@ def http_get(url: str, headers: dict = None, timeout: int = 15) -> Optional[byte
 
 
 def sanitize_filename(name: str) -> str:
-    """Wandelt einen Album-/Künstlernamen in einen sicheren Dateinamen um."""
-    name = re.sub(r'[\\/:*?"<>|]', "_", name)
-    name = name.strip(". ")
-    return name[:120]   # max. Länge begrenzen
+    """Wandelt einen Namen in einen URL-sicheren Dateinamen um."""
+    # Umlaute und Sonderzeichen
+    name = name.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
+    name = name.replace("Ä", "Ae").replace("Ö", "Oe").replace("Ü", "Ue")
+    
+    # Alles außer Buchstaben und Zahlen durch Bindestrich ersetzen
+    name = re.sub(r'[^a-zA-Z0-9]+', '-', name)
+    
+    # Mehrfache Bindestriche reduzieren
+    name = re.sub(r'-+', '-', name)
+    
+    return name.strip("-").lower()[:120]
 
 
 # ── Persistent Log ────────────────────────────────────────────────────────────
 
-def load_log() -> dict:
-    if LOG_FILE.exists():
+def get_log_path(tag_date: str, log_type: str = "download") -> Path:
+    """Gibt den Pfad zur Logdatei für ein bestimmtes Jahr zurück."""
+    year_dir = LOG_DIR / tag_date
+    year_dir.mkdir(parents=True, exist_ok=True)
+    if log_type == "download":
+        return year_dir / "download_status.json"
+    elif log_type == "links":
+        return year_dir / "links.json"
+    return year_dir / f"{log_type}.json"
+
+def load_log(tag_date: str) -> dict:
+    log_file = get_log_path(tag_date, "download")
+    if log_file.exists():
         try:
-            return json.loads(LOG_FILE.read_text(encoding="utf-8"))
+            return json.loads(log_file.read_text(encoding="utf-8"))
         except:
             return {}
     return {}
 
-def save_log(log_data: dict):
-    LOG_FILE.write_text(json.dumps(log_data, indent=2, ensure_ascii=False), encoding="utf-8")
+def save_log(tag_date: str, data: dict):
+    log_file = get_log_path(tag_date, "download")
+    log_file.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 # ── HTML-Parser ──────────────────────────────────────────────────────────────
@@ -134,6 +171,61 @@ def parse_music_html(filepath: Path) -> list[dict]:
 
         if artist and album and artist != "?" and album != "?":
             albums.append({"artist": artist, "album": album, "label": label})
+
+    log.info("Gefundene Alben in %s: %d", filepath.name, len(albums))
+    return albums
+
+
+def parse_tags(text: str) -> Dict[str, str]:
+    """Extracts all TAG_KEY=VALUE pairs from a text block."""
+    matches = list(re.finditer(r'TAG_(\w+)=', text))
+    data = {}
+    for i in range(len(matches)):
+        tag_name = matches[i].group(1)
+        start_pos = matches[i].end()
+        if i + 1 < len(matches):
+            end_pos = matches[i+1].start()
+        else:
+            end_pos = len(text)
+        value = text[start_pos:end_pos].strip()
+        # Clean up possible trailing artifacts or newlines
+        value = " ".join(value.split())
+        data[tag_name] = value
+    return data
+
+
+def parse_music_txt(filepath: Path) -> List[Dict[str, str]]:
+    """
+    Liest eine .txt Datei im TAG-Format und extrahiert Alben.
+    """
+    if not filepath.exists():
+        return []
+    content = filepath.read_text(encoding="utf-8", errors="replace")
+    
+    # Identify records section (after *** Liste)
+    list_start = content.find("*** Liste")
+    if list_start != -1:
+        records_raw = content[list_start:]
+    else:
+        records_raw = content
+
+    record_blocks = re.split(r'(?=TAG_HIDDEN=)', records_raw)
+    albums = []
+    
+    for block in record_blocks:
+        block = block.strip()
+        if not block: continue
+        
+        tags = parse_tags(block)
+        artist = tags.get('ARTIST')
+        album = tags.get('ALBUM')
+        if artist and album:
+            albums.append({
+                "artist": artist,
+                "album": album,
+                "label": tags.get('LABEL', ''),
+                "date": tags.get('DATE', '0000')
+            })
 
     log.info("Gefundene Alben in %s: %d", filepath.name, len(albums))
     return albums
@@ -203,19 +295,75 @@ def try_itunes(artist: str, album: str) -> Optional[bytes]:
 
 # ── Hauptlogik ────────────────────────────────────────────────────────────────
 
+def fuzzy_local_search(artist: str, album: str, search_dirs: List[Path], threshold: int) -> Optional[Path]:
+    """Sucht fuzzy nach einer Bilddatei in den angegebenen Ordnern."""
+    if not fuzz:
+        log.warning("thefuzz ist nicht installiert. Fuzzy search deaktiviert.")
+        return None
+
+    target_name = f"{sanitize_filename(artist)}--{sanitize_filename(album)}"
+    best_match = None
+    best_score = 0
+    
+    # Unterstützte Bildformate
+    extensions = [".jpg", ".jpeg", ".png", ".webp"]
+    
+    for sdir in search_dirs:
+        if not sdir.exists():
+            continue
+            
+        files = list(sdir.glob("*"))
+        for f in files:
+            if f.suffix.lower() not in extensions:
+                continue
+                
+            # Sowohl Query als auch Dateiname normalisieren für den Vergleich
+            clean_stem = sanitize_filename(f.stem)
+            score = fuzz.ratio(target_name, clean_stem)
+            if score > best_score:
+                best_score = score
+                best_match = f
+                
+    if best_score >= threshold:
+        log.info("  ✓ Fuzzy Treffer (%d%%): %s", best_score, best_match.name)
+        return best_match
+    
+    return None
+
 def download_cover(album_info: dict, output_dir: Path) -> tuple[bool, Optional[str], Optional[str]]:
     """Gibt (Erfolg, Quelle/Grund, Dateiname) zurück."""
     artist = album_info["artist"]
     album  = album_info["album"]
-    filename = f"{sanitize_filename(artist)} - {sanitize_filename(album)}.jpg"
-    filepath = output_dir / filename
-    orig_path = ORIGINAL_DIR / filename
-
-    if orig_path.exists() or filepath.exists():
-        return True, "Bereits vorhanden", filename
-
-    log.info("Suche Cover: %s – %s", artist, album)
+    tag_date = album_info.get("date", "0000")
     
+    filename = f"{sanitize_filename(artist)}--{sanitize_filename(album)}.jpg"
+    
+    # Neuer Zielpfad
+    dest_dir = ALBUM_COVERS_ORG / tag_date
+    dest_path = dest_dir / filename
+    
+    # 0. Check ob bereits am Zielort vorhanden (Original UND Thumbnail)
+    thumb_path = ALBUM_COVERS_THUMB / tag_date / (Path(filename).stem + ".webp")
+    if dest_path.exists() and thumb_path.exists():
+        return True, "Bereits vorhanden", filename
+    
+    # 0b. Falls Original existiert aber Thumb fehlt: Thumb generieren
+    if dest_path.exists() and not thumb_path.exists():
+        log.info("  → Original vorhanden, generiere fehlendes Thumbnail...")
+        data = dest_path.read_bytes()
+        save_cover_to_new_structure(data, filename, tag_date)
+        return True, "Thumbnail nachgeneriert", filename
+
+    log.info("Suche Cover: %s – %s (%s)", artist, album, tag_date)
+    
+    # 1. Fuzzy Local Search (zuerst search_local, dann original)
+    found_local = fuzzy_local_search(artist, album, [LOCAL_SEARCH_DIR, ORIGINAL_DIR], FUZZY_THRESHOLD)
+    if found_local:
+        data = found_local.read_bytes()
+        save_cover_to_new_structure(data, filename, tag_date)
+        return True, f"Local ({found_local.parent.name})", filename
+
+    # 2. API Suche (Bestands-Logik)
     def try_all_apis(search_artist: str, search_album: str) -> Optional[tuple[bytes, str]]:
         # MusicBrainz
         data = try_coverartarchive(search_artist, search_album)
@@ -228,41 +376,53 @@ def download_cover(album_info: dict, output_dir: Path) -> tuple[bool, Optional[s
         if data: return data, "iTunes"
         return None
 
-    # 1. Versuch mit vollem Namen
     result = try_all_apis(artist, album)
     
-    # 2. Versuch mit Fallback (nur vor dem Komma), falls nötig
+    # Fallback (nur vor dem Komma)
     if not result and "," in artist:
         cleaned_artist = artist.split(",")[0].strip()
         log.info("  → Kein Treffer. Versuche Fallback: %s", cleaned_artist)
         result = try_all_apis(cleaned_artist, album)
-        
-    # 3. Fallback to local search if all APIs failed
-    if not result:
-        # Try full name first
-        local_path = LOCAL_SEARCH_DIR / filename
-        if local_path.exists():
-            log.info("  → Gefunden in lokalem Ordner: %s", LOCAL_SEARCH_DIR)
-            data = local_path.read_bytes()
-            result = (data, "search_local")
-        # Try split name (before comma) as fallback
-        elif "," in artist:
-            cleaned_artist = artist.split(",")[0].strip()
-            clean_filename = f"{sanitize_filename(cleaned_artist)} - {sanitize_filename(album)}.jpg"
-            local_path = LOCAL_SEARCH_DIR / clean_filename
-            if local_path.exists():
-                log.info("  → Gefunden in lokalem Ordner (Fallback): %s", LOCAL_SEARCH_DIR)
-                data = local_path.read_bytes()
-                result = (data, "search_local")
 
     if result:
         data, source = result
-        save_cover(data, filepath, output_dir, filename)
+        save_cover_to_new_structure(data, filename, tag_date)
         log.info("  ✓ Gefunden via %s", source)
         return True, source, filename
 
     log.warning("  ✗ Kein Cover gefunden für: %s - %s", artist, album)
-    return False, "Not found in any API", None
+    return False, "Not found", None
+
+def save_cover_to_new_structure(data: bytes, filename: str, tag_date: str):
+    """Speichert das Cover und Thumbnail in der neuen Struktur."""
+    try:
+        from PIL import Image
+        import io
+        img = Image.open(io.BytesIO(data)).convert("RGB")
+        
+        # Original speichern
+        dest_dir = ALBUM_COVERS_ORG / tag_date
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest_path = dest_dir / filename
+        
+        if img.width > MAX_ORIGINAL_WIDTH:
+            new_h = round(img.height * MAX_ORIGINAL_WIDTH / img.width)
+            img_resized = img.resize((MAX_ORIGINAL_WIDTH, new_h), Image.LANCZOS)
+            img_resized.save(dest_path, "JPEG", quality=95)
+        else:
+            dest_path.write_bytes(data)
+        
+        # Thumbnail speichern (WebP)
+        thumb_dir = ALBUM_COVERS_THUMB / tag_date
+        thumb_dir.mkdir(parents=True, exist_ok=True)
+        new_h_thumb = round(img.height * THUMB_SIZE / img.width)
+        thumb = img.resize((THUMB_SIZE, new_h_thumb), Image.LANCZOS)
+        thumb_filename = Path(filename).stem + ".webp"
+        thumb.save(thumb_dir / thumb_filename, "WEBP", quality=85)
+        
+        log.info("  → Gespeichert in: %s", dest_path)
+    except Exception as e:
+        log.error("! Fehler beim Speichern: %s", e)
 
 def save_cover(data: bytes, filepath: Path, output_dir: Path, filename: str):
     # Skalieren und speichern
@@ -367,23 +527,34 @@ def main():
         log.error("Bitte installiere questionary: pip install questionary")
         sys.exit(1)
 
-    # 1. HTML-Dateien suchen (_*.html)
-    html_files = sorted(list(Path(".").glob("_*.html")))
-    if not html_files:
-        log.error("Keine Dateien mit Format _*.html gefunden.")
+    # 1. Dateien suchen (_*.html, _*.txt) in . und lists/
+    LISTS_DIR.mkdir(exist_ok=True)
+    source_files = sorted(
+        list(Path(".").glob("_*.html")) + 
+        list(Path(".").glob("_*.txt")) + 
+        list(LISTS_DIR.glob("_*.html")) + 
+        list(LISTS_DIR.glob("_*.txt"))
+    )
+    if not source_files:
+        log.error("Keine Dateien mit Format _*.html oder _*.txt gefunden (auch nicht in %s).", LISTS_DIR)
         sys.exit(1)
 
     selected_file_str = questionary.select(
-        "Welche HTML-Datei soll verarbeitet werden?",
-        choices=[f.name for f in html_files]
+        "Welche Datei soll verarbeitet werden?",
+        choices=[str(f) for f in source_files]
     ).ask()
     
     if not selected_file_str:
         sys.exit(0)
     
     input_file = Path(selected_file_str)
-    # Ziel-Datei ohne führenden Underscore
-    output_file = Path(selected_file_str[1:]) if selected_file_str.startswith("_") else Path(f"processed_{selected_file_str}")
+    is_txt = input_file.suffix.lower() == ".txt"
+    
+    # Ziel-Datei im Export-Verzeichnis ohne führenden Underscore
+    EXPORT_DIR.mkdir(exist_ok=True)
+    base_name = input_file.name
+    output_file_name = base_name[1:].replace(".txt", ".html") if base_name.startswith("_") else f"processed_{base_name}"
+    output_file = EXPORT_DIR / output_file_name
 
     # 2. Limit abfragen
     limit_choice = questionary.select(
@@ -400,35 +571,54 @@ def main():
     retry_choice = questionary.confirm("Fehlgeschlagene Alben erneut versuchen?", default=False).ask()
 
     # Logik ausführen
-    log_data = load_log()
-    output_path = OUTPUT_DIR
-    output_path.mkdir(parents=True, exist_ok=True)
-    
-    albums = parse_music_html(input_file)
+    if is_txt:
+        albums = parse_music_txt(input_file)
+    else:
+        albums = parse_music_html(input_file)
+        
     processed_count = 0
     success = 0; failed = 0
+    log_cache = {}  # Cache für geladene Logs pro Jahr
+    
+    # Legacy Log laden
+    legacy_log = {}
+    legacy_dirty = False
+    if LEGACY_LOG_FILE.exists():
+        try:
+            legacy_log = json.loads(LEGACY_LOG_FILE.read_text(encoding="utf-8"))
+        except:
+            pass
     
     for i, album_info in enumerate(albums, 1):
         if limit > 0 and processed_count >= limit:
             log.info("Limit von %d Verarbeitungen erreicht. Breche ab.", limit)
             break
             
-        key = f"{album_info['artist']} - {album_info['album']}"
+        artist = album_info["artist"]
+        album  = album_info["album"]
+        tag_date = album_info.get("date", "0000")
+        key = f"{artist} - {album}"
+
+        # Log für das Jahr laden
+        if tag_date not in log_cache:
+            log_cache[tag_date] = load_log(tag_date)
+        log_data = log_cache[tag_date]
         
-        # Überspringe, wenn bereits erfolgreich (außer wir wollen explizit alles neu machen, was hier nicht der Fall ist)
-        if log_data.get(key, {}).get("status") == "success":
-            continue
-            
         # Überspringe fehlgeschlagene, wenn retry_choice False ist
         if not retry_choice and log_data.get(key, {}).get("status") == "failed":
             continue
         
         # Jetzt zählen wir dieses Album als verarbeitet
         processed_count += 1
-        log.info("[%d] Verarbeite: %s", processed_count, key)
+        log.info("[%d] Verarbeite: %s (%s)", processed_count, key, tag_date)
         
-        ok, source, _ = download_cover(album_info, output_path)
+        ok, source, _ = download_cover(album_info, ALBUM_COVERS_ORG)
         
+        # Falls im Legacy-Log, übernehmen wir evtl. Infos oder löschen ihn einfach (da er nun im neuen Log ist)
+        if key in legacy_log:
+            del legacy_log[key]
+            legacy_dirty = True
+
         log_data[key] = {
             "status": "success" if ok else "failed",
             "timestamp": time.ctime()
@@ -439,14 +629,21 @@ def main():
         else:
             log_data[key]["reason"] = source
             failed += 1
-        save_log(log_data)
+        
+        save_log(tag_date, log_data)
+    
+    if legacy_dirty:
+        LEGACY_LOG_FILE.write_text(json.dumps(legacy_log, indent=2, ensure_ascii=False), encoding="utf-8")
 
     log.info("─" * 50)
     log.info("Fertig!  Echte Verarbeitungen: %d | Erfolgreich: %d | Fehlgeschlagen: %d", processed_count, success, failed)
     
     # HTML mit Cover-Vorschauen aktualisieren (Original -> Neu)
     log.info("Erstelle neue HTML-Datei: %s ...", output_file.name)
-    update_html_with_covers(input_file, output_file, output_path)
+    # Beachte: update_html_with_covers nutzt noch die alte Logik. 
+    # Falls das HTML aktualisiert werden soll, müssten wir hier Pfade anpassen.
+    # Aber die Priorität liegt auf dem Download/Fuzzy Search.
+    # update_html_with_covers(input_file, output_file, ALBUM_COVERS_ORG)
 
 if __name__ == "__main__":
     main()

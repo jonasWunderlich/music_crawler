@@ -12,8 +12,11 @@ import questionary
 import download_covers
 
 # Configuration
-THUMB_DIR = Path("covers/thumbs")
-OUTPUT_DIR = Path("covers")
+THUMB_DIR = Path("export/thumb")
+OUTPUT_DIR = Path("album_covers/org")
+LISTS_DIR = Path("lists")
+EXPORT_DIR = Path("export")
+LEGACY_LINKS_FILE = Path("log/legacy/links.json")
 
 def sanitize_filename(name):
     """Wandelt einen Album-/Künstlernamen in einen sicheren Dateinamen um."""
@@ -36,24 +39,28 @@ def parse_tags(text):
         data[tag_name] = value
     return data
 
-LINKS_LOG_FILE = Path("links_log.json")
+def get_log_path(tag_date: str, log_type: str = "links") -> Path:
+    """Nutzt die Log-Pfad-Logik aus download_covers."""
+    return download_covers.get_log_path(tag_date, log_type)
 
-def load_links_log():
-    if LINKS_LOG_FILE.exists():
+def load_links_log(tag_date: str):
+    log_file = get_log_path(tag_date, "links")
+    if log_file.exists():
         try:
-            with open(LINKS_LOG_FILE, "r", encoding="utf-8") as f:
+            with open(log_file, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
-            print(f"Error loading {LINKS_LOG_FILE}: {e}")
+            print(f"Error loading {log_file}: {e}")
             return {}
     return {}
 
-def save_links_log(log_data):
+def save_links_log(tag_date: str, log_data: dict):
+    log_file = get_log_path(tag_date, "links")
     try:
-        with open(LINKS_LOG_FILE, "w", encoding="utf-8") as f:
+        with open(log_file, "w", encoding="utf-8") as f:
             json.dump(log_data, f, indent=4, ensure_ascii=False)
     except Exception as e:
-        print(f"Error saving {LINKS_LOG_FILE}: {e}")
+        print(f"Error saving {log_file}: {e}")
 
 def fetch_bandcamp_links(artist, album):
     query = urllib.parse.quote(f"{artist} {album}")
@@ -157,7 +164,7 @@ def generate_html(input_file, output_file):
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <link rel="icon" type="image/ico" href="fav.ico">
+    <link rel="icon" type="image/ico" href="../fav.ico">
     <link rel="stylesheet" href="style-music.css">
 </head>
 """
@@ -220,8 +227,17 @@ def generate_html(input_file, output_file):
 
     html_cards = []
     
-    links_log = load_links_log()
-    links_dirty = False
+    links_log_cache = {}
+    links_dirty_years = set()
+    
+    # Legacy Links laden
+    legacy_links = {}
+    legacy_dirty = False
+    if LEGACY_LINKS_FILE.exists():
+        try:
+            legacy_links = json.loads(LEGACY_LINKS_FILE.read_text(encoding="utf-8"))
+        except:
+            pass
     
     # Apply initial sort
     if initial_sort == "TAG_RATING":
@@ -263,7 +279,14 @@ def generate_html(input_file, output_file):
         tino = tags.get('TINO', '0')
         wire = tags.get('WIRE', '0')
 
+        artist = tags.get('ARTIST')
+        album = tags.get('ALBUM')
+        tag_date = tags.get('DATE', '0000')
         log_key = f"{artist} - {album}"
+
+        if tag_date not in links_log_cache:
+            links_log_cache[tag_date] = load_links_log(tag_date)
+        links_log = links_log_cache[tag_date]
         
         current_video_tag = tags.get('VIDEO', '').strip()
         if current_video_tag == '?':
@@ -274,35 +297,53 @@ def generate_html(input_file, output_file):
             current_album_link_tag = ''
 
         if log_key not in links_log:
-            print(f"Fetching links for: {log_key}")
-            links = fetch_bandcamp_links(artist, album)
-            links["VIDEO_LINK"] = current_video_tag
-            if current_album_link_tag:
-                links["ALBUM_LINK"] = current_album_link_tag
-            links_log[log_key] = links
-            links_dirty = True
-            time.sleep(1) # Be nice to Bandcamp avoiding rate limits
+            # Zuerst im Legacy-Log nachsehen
+            if log_key in legacy_links:
+                print(f"Using legacy links for: {log_key}")
+                links = legacy_links[log_key]
+                # Video-Link aus Textdatei hat Priorität
+                if current_video_tag: links["VIDEO_LINK"] = current_video_tag
+                if current_album_link_tag: links["ALBUM_LINK"] = current_album_link_tag
+                
+                links_log[log_key] = links
+                links_dirty_years.add(tag_date)
+                
+                # Aus Legacy löschen
+                del legacy_links[log_key]
+                legacy_dirty = True
+            else:
+                print(f"Fetching links for: {log_key}")
+                links = fetch_bandcamp_links(artist, album)
+                links["VIDEO_LINK"] = current_video_tag
+                if current_album_link_tag:
+                    links["ALBUM_LINK"] = current_album_link_tag
+                links_log[log_key] = links
+                links_dirty_years.add(tag_date)
+                time.sleep(1) # Be nice to Bandcamp avoiding rate limits
         else:
             links = links_log[log_key]
             # Update video link in cache if the text file has a new one
             if current_video_tag and links.get("VIDEO_LINK") != current_video_tag:
                 links["VIDEO_LINK"] = current_video_tag
-                links_dirty = True
+                links_dirty_years.add(tag_date)
             # Update album link in cache if explicitly provided in text file
             if current_album_link_tag and links.get("ALBUM_LINK") != current_album_link_tag:
                 links["ALBUM_LINK"] = current_album_link_tag
-                links_dirty = True
+                links_dirty_years.add(tag_date)
         
         artist_link = links.get("ARTIST_LINK", "")
         album_link = links.get("ALBUM_LINK", "")
         video_link = links.get("VIDEO_LINK", "")
 
-        thumb_name = f"{sanitize_filename(artist)} - {sanitize_filename(album)}.webp"
-        thumb_path = THUMB_DIR / thumb_name
+        thumb_name = f"{sanitize_filename(artist)}--{sanitize_filename(album)}.webp"
+        tag_date = tags.get('DATE', '0000')
+        thumb_path = THUMB_DIR / tag_date / thumb_name
         
         img_html = ""
         if thumb_path.exists():
-            img_html = f'<img src="covers/thumbs/{thumb_name}" alt="{html.escape(album)}" loading="lazy">'
+            # Da die HTML-Datei jetzt im export/ Ordner liegt, 
+            # ist der Pfad zum Thumbnail relativ dazu: thumb/JAHR/name.webp
+            img_html = f'<img src="thumb/{tag_date}/{thumb_name}" alt="{html.escape(album)}" loading="lazy">'
         else:
             img_html = f'<div class="no-cover">NO COVER</div>'
             missing_covers.append(tags)
@@ -457,8 +498,12 @@ def generate_html(input_file, output_file):
     final_html = header + '\n    <div class="poster-wall">\n' + "\n".join(html_cards) + "\n" + footer
     output_file.write_text(final_html, encoding="utf-8")
     
-    if links_dirty:
-        save_links_log(links_log)
+    if links_dirty_years:
+        for year in links_dirty_years:
+            save_links_log(year, links_log_cache[year])
+    
+    if legacy_dirty:
+        LEGACY_LINKS_FILE.write_text(json.dumps(legacy_links, indent=4, ensure_ascii=False), encoding="utf-8")
         
     print(f"Success! {len(html_cards)} albums processed. Created {output_file}")
     return missing_covers
@@ -466,12 +511,17 @@ def generate_html(input_file, output_file):
 def main():
     while True:
         # 1. Select Input File
-        txt_files = sorted(list(Path(".").glob("_*.txt")), reverse=True)
+        LISTS_DIR.mkdir(exist_ok=True)
+        txt_files = sorted(
+            list(Path(".").glob("_*.txt")) + 
+            list(LISTS_DIR.glob("_*.txt")), 
+            reverse=True
+        )
         if not txt_files:
-            print("Error: No _*.txt files found.")
+            print(f"Error: No _*.txt files found (checked root and {LISTS_DIR}).")
             return
 
-        choices = [f.name for f in txt_files] + ["Exit"]
+        choices = [str(f) for f in txt_files] + ["Exit"]
         input_file_str = questionary.select(
             "Which list file would you like to process?",
             choices=choices
@@ -481,7 +531,9 @@ def main():
             break
 
         input_file = Path(input_file_str)
-        output_file = Path(input_file_str[1:].replace(".txt", ".html"))
+        # Output file in export/, regardless of where the input file is
+        EXPORT_DIR.mkdir(exist_ok=True)
+        output_file = EXPORT_DIR / Path(input_file.name[1:].replace(".txt", ".html"))
 
         missing_covers = generate_html(input_file, output_file)
 
@@ -491,17 +543,38 @@ def main():
             retry_choice = questionary.confirm("Would you like to try downloading the missing covers now?", default=False).ask()
             
             if retry_choice:
-                log_data = download_covers.load_log()
+                log_cache = {}
+                # Legacy Log laden
+                legacy_log = {}
+                legacy_dirty = False
+                if download_covers.LEGACY_LOG_FILE.exists():
+                    try:
+                        legacy_log = json.loads(download_covers.LEGACY_LOG_FILE.read_text(encoding="utf-8"))
+                    except:
+                        pass
+
                 for tags in missing_covers:
+                    tag_date = tags.get('DATE', '0000')
                     album_info = {
                         "artist": tags.get('ARTIST'),
                         "album": tags.get('ALBUM'),
-                        "label": tags.get('LABEL')
+                        "label": tags.get('LABEL'),
+                        "date": tag_date
                     }
                     key = f"{album_info['artist']} - {album_info['album']}"
                     print(f"Processing: {key}")
+                    
+                    if tag_date not in log_cache:
+                        log_cache[tag_date] = download_covers.load_log(tag_date)
+                    log_data = log_cache[tag_date]
+
                     ok, source, _ = download_covers.download_cover(album_info, OUTPUT_DIR)
                     
+                    # Falls im Legacy-Log, löschen wir ihn (da er nun im neuen Log ist)
+                    if key in legacy_log:
+                        del legacy_log[key]
+                        legacy_dirty = True
+
                     log_data[key] = {
                         "status": "success" if ok else "failed",
                         "timestamp": time.ctime()
@@ -510,7 +583,10 @@ def main():
                         log_data[key]["source"] = source
                     else:
                         log_data[key]["reason"] = source
-                    download_covers.save_log(log_data)
+                    download_covers.save_log(tag_date, log_data)
+                
+                if legacy_dirty:
+                    download_covers.LEGACY_LOG_FILE.write_text(json.dumps(legacy_log, indent=2, ensure_ascii=False), encoding="utf-8")
                 
                 # Re-generate HTML after downloads to include new covers
                 print("\nUpdating HTML with newly downloaded covers...")
