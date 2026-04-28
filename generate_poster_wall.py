@@ -119,6 +119,9 @@ def generate_html(input_file, output_file):
         print("Error: No TAG_HIDDEN found in file.")
         return []
 
+    # Get hidden lists early so navigation can use it
+    hidden_lists = get_hidden_lists()
+
     header_raw = content[:header_end_idx]
     records_raw = content[header_end_idx:]
 
@@ -240,7 +243,6 @@ def generate_html(input_file, output_file):
 
     # Build Navigation HTML
     # Find all HTML files in export directory for the hamburger menu
-    hidden_lists = get_hidden_lists()
     export_files = []
     for f in EXPORT_DIR.glob("*.html"):
         if f.is_file():

@@ -85,7 +85,6 @@ a.active {
 
 .hamburger-menu {
     position: relative;
-    margin-left: auto;
 }
 
 .hamburger-btn {
@@ -122,70 +121,60 @@ a.active {
 
 .menu-content {
     position: absolute;
-    top: 60px;
-    right: 0;
-    width: 500px;
-    background: #ffffff;
+    top: 62px;
+    right: -12px;
+    background-color: var(--text-color-light);
     box-shadow: 0 15px 45px rgba(0, 0, 0, 0.18);
-    border-radius: 16px;
-    padding: 0px;
+    border-radius: 8px;
+    padding: 8px;
     display: none;
     max-height: 80vh;
     overflow-y: auto;
     z-index: 1000;
-    border: 1px solid rgba(0, 0, 0, 0.08);
-    padding: 4px;
 
 }
 
 .menu-content.show {
     display: block;
     column-count: 3;
-    column-gap: 15px;
-    column-rule: 1px solid #f0f0f0;
+    column-gap: 8px;
 }
 
 @media (max-width: 768px) {
-    .menu-content {
-        width: 400px;
-    }
-
     .menu-content.show {
         column-count: 2;
     }
 }
 
-@media (max-width: 480px) {
-    .menu-content {
-        width: calc(100vw - 40px);
-        right: -10px;
-    }
 
+@media (max-width: 600px) {
     .menu-content.show {
+        width: calc(100vw - 40px);
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 320px) {
+    .menu-content.show {
+        grid-template-columns: repeat(1, 1fr);
+        max-height: none;
         column-count: 1;
     }
 }
 
 .menu-header {
     column-span: all;
-    /* Header spans across all columns */
-    padding: 0 10px 10px 10px;
-    font-size: 0.75em;
-    text-transform: uppercase;
+    padding: 12px 12px 6px 12px;
+    font-size: 1.35em;
     letter-spacing: 2px;
-    color: var(--text-color-muted);
-    font-weight: bold;
-    border-bottom: 1px solid #f0f0f0;
-    margin-bottom: 15px;
-    padding: 10px;
+    margin-bottom: 12px;
+    text-align: center;
 }
 
 .menu-content a {
     padding: 10px 12px;
-    color: var(--text-color-dark) !important;
-    font-size: 0.9em !important;
-    font-weight: 500 !important;
-    text-transform: none !important;
+    color: var(--text-color-link);
+    background-color: var(--text-color-light);
     letter-spacing: 0 !important;
     transition: all 0.2s;
     border-radius: 6px;
@@ -194,24 +183,15 @@ a.active {
     text-overflow: ellipsis;
     display: block;
     break-inside: avoid;
+    text-align: center;
+    margin-bottom: 8px;
 }
 
 .menu-content a:hover {
-    background: #f0f4ff;
-    color: var(--text-color-link) !important;
+    color: var(--text-color-light);
+    background-color: var(--text-color-link-hover);
     text-decoration: none;
     transform: translateX(3px);
-}
-
-@media (max-width: 600px) {
-    .menu-content {
-        width: calc(100vw - 40px);
-        right: -10px;
-    }
-
-    .menu-content.show {
-        grid-template-columns: repeat(2, 1fr);
-    }
 }
 
 .controls-row {
