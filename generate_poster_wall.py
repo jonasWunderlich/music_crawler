@@ -62,6 +62,25 @@ def save_links_log(tag_date: str, log_data: dict):
     except Exception as e:
         print(f"Error saving {log_file}: {e}")
 
+def get_hidden_lists():
+    """Scans all .txt files in LISTS_DIR to find those marked with IS_HIDDEN=1."""
+    hidden = set()
+    if not LISTS_DIR.exists():
+        return hidden
+    for txt_file in LISTS_DIR.glob("*.txt"):
+        try:
+            # We only need to check the header area for settings
+            with open(txt_file, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    if "TAG_HIDDEN=" in line: # End of header
+                        break
+                    if "IS_HIDDEN=1" in line:
+                        hidden.add(txt_file.stem)
+                        break
+        except:
+            continue
+    return hidden
+
 def fetch_bandcamp_links(artist, album):
     query = urllib.parse.quote(f"{artist} {album}")
     search_url = f"https://bandcamp.com/search?q={query}"
@@ -103,11 +122,13 @@ def generate_html(input_file, output_file):
     header_raw = content[:header_end_idx]
     records_raw = content[header_end_idx:]
 
+    # Determine if it's a year-based file
+    is_year_file = input_file.stem.isdigit()
+    current_year = int(input_file.stem) if is_year_file else None
+
     # Parse Navigation, Title, and Sort from header_raw
     nav_items = []
     page_title = "Records"
-    initial_sort = "ORIGINAL"  # Default fallback
-    
     initial_sort = "TAG_RATING"
     show_date = False
     show_tino_filter = True
@@ -119,8 +140,8 @@ def generate_html(input_file, output_file):
         if not line:
             continue
             
-        if line.lower() == "*** settings":
-            parsing_settings = True
+        if line.startswith("***"):
+            parsing_settings = (line.lower() == "*** settings")
             continue
         
         if parsing_settings:
@@ -136,6 +157,8 @@ def generate_html(input_file, output_file):
                     show_tino_filter = (v != "0")
                 elif k == "FILTER__TAG_WIRE":
                     show_wire_filter = (v != "0")
+                elif k == "IS_HIDDEN":
+                    is_hidden_page = (v == "1")
             else:
                 # Handle direct values for backward compatibility
                 initial_sort = line.upper()
@@ -152,6 +175,26 @@ def generate_html(input_file, output_file):
         elif line.startswith("TITEL="):
             page_title = line[6:].strip()
             nav_items.append({"type": "title", "label": page_title})
+
+    # Automate Navigation for year-based files
+    if is_year_file:
+        auto_nav = []
+        auto_nav.append({"type": "link", "label": "Home", "url": "../index.html"})
+        
+        # Previous Year
+        prev_year = current_year - 1
+        if (input_file.parent / f"{prev_year}.txt").exists() and str(prev_year) not in hidden_lists:
+            auto_nav.append({"type": "link", "label": str(prev_year), "url": f"{prev_year}.html"})
+            
+        page_title = f"Records in {current_year}"
+        auto_nav.append({"type": "title", "label": page_title})
+        
+        # Next Year
+        next_year = current_year + 1
+        if (input_file.parent / f"{next_year}.txt").exists() and str(next_year) not in hidden_lists:
+            auto_nav.append({"type": "link", "label": str(next_year), "url": f"{next_year}.html"})
+            
+        nav_items = auto_nav
 
     # Define Sort UI
     sort_ui = f"""
@@ -197,7 +240,16 @@ def generate_html(input_file, output_file):
 
     # Build Navigation HTML
     # Find all HTML files in export directory for the hamburger menu
-    export_files = sorted([f.name for f in EXPORT_DIR.glob("*.html") if f.is_file()])
+    hidden_lists = get_hidden_lists()
+    export_files = []
+    for f in EXPORT_DIR.glob("*.html"):
+        if f.is_file():
+            # Skip files marked as hidden (by checking if a corresponding .txt exists and is hidden)
+            if f.stem in hidden_lists:
+                continue
+            export_files.append(f.name)
+    
+    export_files.sort()
     menu_links_html = "".join([f'        <a href="{f}">{f.replace(".html", "")}</a>\n' for f in export_files])
 
     nav_html = '<nav class="site-nav">\n'
