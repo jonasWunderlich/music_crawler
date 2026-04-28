@@ -2,8 +2,8 @@ import os
 from pathlib import Path
 from PIL import Image
 
-ORIGINAL_DIR = Path("covers/original")
-THUMB_DIR = Path("covers/thumbs")
+ORIGINAL_DIR = Path("album_covers/org")
+THUMB_DIR = Path("export/thumb")
 THUMB_SIZE = 400
 
 def regenerate():

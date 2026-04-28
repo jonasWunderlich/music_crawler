@@ -39,8 +39,8 @@ except ImportError:
 
 LAST_FM_API_KEY = os.environ.get("LAST_FM_API_KEY", "")   # optional
 OUTPUT_DIR       = Path("covers")
-ORIGINAL_DIR     = Path("covers/original")
-LOCAL_SEARCH_DIR = Path("covers/search_local")
+ORIGINAL_DIR     = Path("album_covers/legacy")
+LOCAL_SEARCH_DIR = Path("album_covers/local")
 THUMB_SIZE       = 400           # Breite der Thumbnail-Version in Pixel
 MAX_ORIGINAL_WIDTH = 1400       # Maximale Breite für das "Original"-Cover
 DELAY_BETWEEN   = 1.0           # Sekunden zwischen API-Anfragen (Rate-Limit)
@@ -356,7 +356,7 @@ def download_cover(album_info: dict, output_dir: Path) -> tuple[bool, Optional[s
 
     log.info("Suche Cover: %s – %s (%s)", artist, album, tag_date)
     
-    # 1. Fuzzy Local Search (zuerst search_local, dann original)
+    # 1. Fuzzy Local Search (zuerst local, dann original)
     found_local = fuzzy_local_search(artist, album, [LOCAL_SEARCH_DIR, ORIGINAL_DIR], FUZZY_THRESHOLD)
     if found_local:
         data = found_local.read_bytes()
@@ -449,7 +449,7 @@ def save_cover(data: bytes, filepath: Path, output_dir: Path, filename: str):
         thumb = img.resize((THUMB_SIZE, new_h_thumb), Image.LANCZOS)
         thumb_filename = Path(filename).stem + ".webp"
         thumb.save(thumb_dir / thumb_filename, "WEBP", quality=85)
-        log.info("  → Original gespeichert in original/: %s", filename)
+        log.info("  → Original gespeichert in org/: %s", filename)
         log.info("  → Thumbnail (%dx%dpx) als WebP gespeichert in thumbs/", THUMB_SIZE, new_h_thumb)
     except ImportError:
         ORIGINAL_DIR.mkdir(parents=True, exist_ok=True)

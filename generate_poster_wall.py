@@ -108,28 +108,41 @@ def generate_html(input_file, output_file):
     page_title = "Records"
     initial_sort = "ORIGINAL"  # Default fallback
     
-    parsing_sort = False
+    initial_sort = "TAG_RATING"
+    show_date = False
+    show_tino_filter = True
+    show_wire_filter = True
+    
+    parsing_settings = False
     for line in header_raw.splitlines():
         line = line.strip()
         if not line:
             continue
             
         if line.lower() == "*** settings":
-            parsing_sort = True
+            parsing_settings = True
             continue
         
-        if parsing_sort:
+        if parsing_settings:
             if "=" in line:
                 key, val = line.split("=", 1)
-                if key.strip().upper() == "SORT_LIST_ORDER":
-                    initial_sort = val.strip().upper()
+                k = key.strip().upper()
+                v = val.strip()
+                if k == "SORT_LIST_ORDER":
+                    initial_sort = v.upper()
+                elif k == "SHOW_DATE":
+                    show_date = (v == "1")
+                elif k == "FILTER__TAG_TINO":
+                    show_tino_filter = (v != "0")
+                elif k == "FILTER__TAG_WIRE":
+                    show_wire_filter = (v != "0")
             else:
                 # Handle direct values for backward compatibility
                 initial_sort = line.upper()
             
             if initial_sort == "DEFAULT":
                 initial_sort = "ORIGINAL"
-            parsing_sort = False
+            # We stay in settings mode until we see NAV or TITEL or empty line
             continue
 
         if line.startswith("NAV="):
@@ -141,7 +154,7 @@ def generate_html(input_file, output_file):
             nav_items.append({"type": "title", "label": page_title})
 
     # Define Sort UI
-    sort_ui = """
+    sort_ui = f"""
     <div class="sort-controls">
         <div class="sort-group">
             <button class="sort-button" onclick="sortPosters('rating', this)">Bewertung</button>
@@ -149,8 +162,8 @@ def generate_html(input_file, output_file):
             <button class="sort-button" onclick="sortPosters('added', this)">Hinzugefügt</button>
         </div>
         <div class="filter-group">
-            <button class="filter-button" data-filter="tino" onclick="toggleFilter('tino', this)">Tino</button>
-            <button class="filter-button" data-filter="wire" onclick="toggleFilter('wire', this)">Wire</button>
+            {f'<button class="filter-button" data-filter="tino" onclick="toggleFilter(\'tino\', this)">Tino</button>' if show_tino_filter else ''}
+            {f'<button class="filter-button" data-filter="wire" onclick="toggleFilter(\'wire\', this)">Wire</button>' if show_wire_filter else ''}
         </div>
     </div>
     """
@@ -183,12 +196,30 @@ def generate_html(input_file, output_file):
     header = base_header
 
     # Build Navigation HTML
+    # Find all HTML files in export directory for the hamburger menu
+    export_files = sorted([f.name for f in EXPORT_DIR.glob("*.html") if f.is_file()])
+    menu_links_html = "".join([f'        <a href="{f}">{f.replace(".html", "")}</a>\n' for f in export_files])
+
     nav_html = '<nav class="site-nav">\n'
     for item in nav_items:
         if item["type"] == "link":
             nav_html += f'        <a href="{item["url"]}">{html.escape(item["label"])}</a>\n'
         else:
             nav_html += f'        <span class="nav-title">{html.escape(item["label"])}</span>\n'
+    
+    nav_html += f"""
+        <div class="hamburger-menu" id="hamburgerMenu">
+            <button class="hamburger-btn" onclick="toggleMenu()" title="Open Navigation">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            <div class="menu-content" id="menuContent">
+                <div class="menu-header">Collection</div>
+                {menu_links_html}
+            </div>
+        </div>
+    """
     nav_html += '    </nav>\n'
 
     # Inject Nav and Controls into header (body section)
@@ -287,7 +318,7 @@ def generate_html(input_file, output_file):
 
         artist = tags.get('ARTIST')
         album = tags.get('ALBUM')
-        tag_date = tags.get('DATE', '0000')
+        tag_date = tags.get('DATE', '3000')
         log_key = f"{artist} - {album}"
 
         if tag_date not in links_log_cache:
@@ -393,7 +424,11 @@ def generate_html(input_file, output_file):
                     {f'<div class="bookmark-wire" title="The Wire"></div>' if wire in ['1', 'wire'] else ''}
                 </div>
                 <div class="album-artist" title="{html.escape(artist)}">{f'<a href="{html.escape(artist_link)}" target="_blank">{html.escape(artist)}</a>' if artist_link else html.escape(artist)}{f'<span class="inline-icon" title="Fan/Favorite">❤️</span>' if fan in ['1', 'fan'] else ''}</div>
-                <div class="album-title" title="{html.escape(album)}">{f'<a href="{html.escape(album_link)}" target="_blank">{html.escape(album)}</a>' if album_link else html.escape(album)}{f'<span class="inline-icon" title="Reissue">↻</span>' if reissue in ['1', 'reissue'] else ''}</div>
+                <div class="album-title" title="{html.escape(album)}">
+                    {f'<a href="{html.escape(album_link)}" target="_blank">{html.escape(album)}</a>' if album_link else html.escape(album)}
+                    {f'<span class="date-label">({html.escape(tag_date)})</span>' if show_date and tag_date else ''}
+                    {f'<span class="inline-icon" title="Reissue">↻</span>' if reissue in ['1', 'reissue'] else ''}
+                </div>
                 <div class="album-label" title="{html.escape(label)}">{html.escape(label)}</div>
                 <div class="album-meta">
                     <div class="location">
@@ -478,6 +513,23 @@ def generate_html(input_file, output_file):
                 p.style.display = visible ? "" : "none";
             }}
         }}
+
+        function toggleMenu() {{
+            var menu = document.getElementById("menuContent");
+            menu.classList.toggle("show");
+            var btn = document.querySelector(".hamburger-btn");
+            btn.classList.toggle("active");
+        }}
+
+        // Close menu when clicking outside
+        window.addEventListener('click', function(e) {{
+            var menu = document.getElementById("menuContent");
+            var btn = document.querySelector(".hamburger-btn");
+            if (menu && btn && !menu.contains(e.target) && !btn.contains(e.target)) {{
+                menu.classList.remove("show");
+                btn.classList.remove("active");
+            }}
+        }});
 
         let currentSort = {{ criteria: '{js_criteria}', direction: {js_direction} }};
 
