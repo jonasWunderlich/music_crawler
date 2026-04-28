@@ -143,9 +143,15 @@ def generate_html(input_file, output_file):
     # Define Sort UI
     sort_ui = """
     <div class="sort-controls">
-        <button class="sort-button" onclick="sortPosters('rating', this)">Bewertung</button>
-        <button class="sort-button" onclick="sortPosters('artist', this)">Artist</button>
-        <button class="sort-button" onclick="sortPosters('added', this)">Hinzugefügt</button>
+        <div class="sort-group">
+            <button class="sort-button" onclick="sortPosters('rating', this)">Bewertung</button>
+            <button class="sort-button" onclick="sortPosters('artist', this)">Artist</button>
+            <button class="sort-button" onclick="sortPosters('added', this)">Hinzugefügt</button>
+        </div>
+        <div class="filter-group">
+            <button class="filter-button" data-filter="tino" onclick="toggleFilter('tino', this)">Tino</button>
+            <button class="filter-button" data-filter="wire" onclick="toggleFilter('wire', this)">Wire</button>
+        </div>
     </div>
     """
 
@@ -375,11 +381,17 @@ def generate_html(input_file, output_file):
              data-added="{html.escape(added)}">
             {img_html}
             {f'<div class="vinyl-overlay" title="Owned (Vinyl)"></div>' if own in ['1', 'own'] else ''}
+            <div class="top-left-icons">
+                {f'<a href="{html.escape(video_link)}" target="_blank" class="video-icon" title="Watch Video"></a>' if video_link and video_link.startswith('http') else ''}
+            </div>
             <div class="top-right-icons">
                 {f'<div class="rating-circle">{rating}</div>' if rating.isdigit() and int(rating) > 0 else ''}
             </div>
-            {f'<a href="{html.escape(video_link)}" target="_blank" class="video-icon" title="Watch Video"></a>' if video_link and video_link.startswith('http') else ''}
             <div class="album-overlay">
+                <div class="overlay-bookmarks">
+                    {f'<div class="bookmark-tino" title="Tino\'s Tip"></div>' if tino in ['1', 'tino'] else ''}
+                    {f'<div class="bookmark-wire" title="The Wire"></div>' if wire in ['1', 'wire'] else ''}
+                </div>
                 <div class="album-artist" title="{html.escape(artist)}">{f'<a href="{html.escape(artist_link)}" target="_blank">{html.escape(artist)}</a>' if artist_link else html.escape(artist)}{f'<span class="inline-icon" title="Fan/Favorite">❤️</span>' if fan in ['1', 'fan'] else ''}</div>
                 <div class="album-title" title="{html.escape(album)}">{f'<a href="{html.escape(album_link)}" target="_blank">{html.escape(album)}</a>' if album_link else html.escape(album)}{f'<span class="inline-icon" title="Reissue">↻</span>' if reissue in ['1', 'reissue'] else ''}</div>
                 <div class="album-label" title="{html.escape(label)}">{html.escape(label)}</div>
@@ -426,24 +438,44 @@ def generate_html(input_file, output_file):
         }}
 
         function searchPosters() {{
+            updateVisibility();
+        }}
+
+        function toggleFilter(type, btn) {{
+            btn.classList.toggle("active");
+            updateVisibility();
+        }}
+
+        function updateVisibility() {{  
             var input = document.getElementById("myInput");
             var clearIcon = document.querySelector(".clear-icon");
-            var filter = input.value.toLowerCase();
+            var filterText = input.value.toLowerCase();
             
-            if (filter.length > 0) {{
+            if (filterText.length > 0) {{
                 clearIcon.style.display = "block";
-            }} else {{
+            }} else {{  
                 clearIcon.style.display = "none";
             }}
 
+            var btnTino = document.querySelector(".filter-button[data-filter='tino']");
+            var btnWire = document.querySelector(".filter-button[data-filter='wire']");
+            var filterTino = btnTino ? btnTino.classList.contains("active") : false;
+            var filterWire = btnWire ? btnWire.classList.contains("active") : false;
+
             var posters = document.getElementsByClassName("album-poster");
-            for (var i = 0; i < posters.length; i++) {{
-                var searchData = posters[i].getAttribute("data-search");
-                if (searchData.includes(filter)) {{
-                    posters[i].style.display = "";
-                }} else {{
-                    posters[i].style.display = "none";
-                }}
+            for (var i = 0; i < posters.length; i++) {{  
+                var p = posters[i];
+                var searchData = p.getAttribute("data-search");
+                var isTino = (p.getAttribute("data-tino") === '1' || p.getAttribute("data-tino") === 'tino');
+                var isWire = (p.getAttribute("data-wire") === '1' || p.getAttribute("data-wire") === 'wire');
+
+                var visible = searchData.includes(filterText);
+                
+                // AND-Logik für Filter
+                if (filterTino && !isTino) visible = false;
+                if (filterWire && !isWire) visible = false;
+
+                p.style.display = visible ? "" : "none";
             }}
         }}
 
