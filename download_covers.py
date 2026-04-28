@@ -527,33 +527,32 @@ def main():
         log.error("Bitte installiere questionary: pip install questionary")
         sys.exit(1)
 
-    # 1. Dateien suchen (_*.html, _*.txt) in . und lists/
+    # 1. Dateien suchen (*.txt) in lists/
     LISTS_DIR.mkdir(exist_ok=True)
     source_files = sorted(
-        list(Path(".").glob("_*.html")) + 
-        list(Path(".").glob("_*.txt")) + 
-        list(LISTS_DIR.glob("_*.html")) + 
-        list(LISTS_DIR.glob("_*.txt"))
+        list(LISTS_DIR.glob("*.txt"))
     )
     if not source_files:
-        log.error("Keine Dateien mit Format _*.html oder _*.txt gefunden (auch nicht in %s).", LISTS_DIR)
+        log.error("Keine Dateien mit Format *.txt gefunden (auch nicht in %s).", LISTS_DIR)
         sys.exit(1)
 
-    selected_file_str = questionary.select(
-        "Welche Datei soll verarbeitet werden?",
-        choices=[str(f) for f in source_files]
+    file_map = {f.stem: f for f in source_files}
+    choices = sorted(list(file_map.keys()), reverse=True)
+
+    selected_name = questionary.autocomplete(
+        "Welche Datei soll verarbeitet werden? (Suche durch Tippen)",
+        choices=choices
     ).ask()
-    
-    if not selected_file_str:
+
+    if not selected_name:
         sys.exit(0)
-    
-    input_file = Path(selected_file_str)
+
+    input_file = file_map[selected_name]
     is_txt = input_file.suffix.lower() == ".txt"
     
-    # Ziel-Datei im Export-Verzeichnis ohne führenden Underscore
+    # Ziel-Datei im Export-Verzeichnis
     EXPORT_DIR.mkdir(exist_ok=True)
-    base_name = input_file.name
-    output_file_name = base_name[1:].replace(".txt", ".html") if base_name.startswith("_") else f"processed_{base_name}"
+    output_file_name = f"{input_file.stem}.html"
     output_file = EXPORT_DIR / output_file_name
 
     # 2. Limit abfragen

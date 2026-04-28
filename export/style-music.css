@@ -56,9 +56,10 @@ a.active {
     gap: 20px;
     padding: 12px 24px;
     margin-bottom: 24px;
-    flex-wrap: nowrap; /* Prevent wrapping for nav/hamburger */
+    flex-wrap: nowrap;
+    /* Prevent wrapping for nav/hamburger */
     background: #ffffff;
-    box-shadow: 0 2px 15px rgba(0,0,0,0.08);
+    box-shadow: 0 2px 15px rgba(0, 0, 0, 0.08);
 }
 
 .site-nav a {
@@ -107,9 +108,17 @@ a.active {
     border-radius: 2px;
 }
 
-.hamburger-btn.active span:nth-child(1) { transform: translateY(8px) rotate(45deg); }
-.hamburger-btn.active span:nth-child(2) { opacity: 0; }
-.hamburger-btn.active span:nth-child(3) { transform: translateY(-8px) rotate(-45deg); }
+.hamburger-btn.active span:nth-child(1) {
+    transform: translateY(8px) rotate(45deg);
+}
+
+.hamburger-btn.active span:nth-child(2) {
+    opacity: 0;
+}
+
+.hamburger-btn.active span:nth-child(3) {
+    transform: translateY(-8px) rotate(-45deg);
+}
 
 .menu-content {
     position: absolute;
@@ -117,14 +126,16 @@ a.active {
     right: 0;
     width: 500px;
     background: #ffffff;
-    box-shadow: 0 15px 45px rgba(0,0,0,0.18);
+    box-shadow: 0 15px 45px rgba(0, 0, 0, 0.18);
     border-radius: 16px;
-    padding: 20px;
+    padding: 0px;
     display: none;
     max-height: 80vh;
     overflow-y: auto;
     z-index: 1000;
-    border: 1px solid rgba(0,0,0,0.08);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    padding: 4px;
+
 }
 
 .menu-content.show {
@@ -138,6 +149,7 @@ a.active {
     .menu-content {
         width: 400px;
     }
+
     .menu-content.show {
         column-count: 2;
     }
@@ -148,13 +160,15 @@ a.active {
         width: calc(100vw - 40px);
         right: -10px;
     }
+
     .menu-content.show {
         column-count: 1;
     }
 }
 
 .menu-header {
-    column-span: all; /* Header spans across all columns */
+    column-span: all;
+    /* Header spans across all columns */
     padding: 0 10px 10px 10px;
     font-size: 0.75em;
     text-transform: uppercase;
@@ -163,6 +177,7 @@ a.active {
     font-weight: bold;
     border-bottom: 1px solid #f0f0f0;
     margin-bottom: 15px;
+    padding: 10px;
 }
 
 .menu-content a {
@@ -193,6 +208,7 @@ a.active {
         width: calc(100vw - 40px);
         right: -10px;
     }
+
     .menu-content.show {
         grid-template-columns: repeat(2, 1fr);
     }

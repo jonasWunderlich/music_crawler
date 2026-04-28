@@ -597,27 +597,30 @@ def main():
         # 1. Select Input File
         LISTS_DIR.mkdir(exist_ok=True)
         txt_files = sorted(
-            list(Path(".").glob("_*.txt")) + 
-            list(LISTS_DIR.glob("_*.txt")), 
+            list(LISTS_DIR.glob("*.txt")), 
             reverse=True
         )
         if not txt_files:
-            print(f"Error: No _*.txt files found (checked root and {LISTS_DIR}).")
+            print(f"Error: No *.txt files found (checked root and {LISTS_DIR}).")
             return
 
-        choices = [str(f) for f in txt_files] + ["Exit"]
-        input_file_str = questionary.select(
-            "Which list file would you like to process?",
+        # Map filenames (without .txt) to full Paths
+        file_map = {f.stem: f for f in txt_files}
+        choices = sorted(list(file_map.keys()), reverse=True) + ["Exit"]
+
+        selected_name = questionary.autocomplete(
+            "Which list file would you like to process? (Type year/name, Exit to quit)",
             choices=choices
         ).ask()
 
-        if not input_file_str or input_file_str == "Exit":
+        if not selected_name or selected_name == "Exit":
             break
 
-        input_file = Path(input_file_str)
+        input_file = file_map[selected_name]
         # Output file in export/, regardless of where the input file is
         EXPORT_DIR.mkdir(exist_ok=True)
-        output_file = EXPORT_DIR / Path(input_file.name[1:].replace(".txt", ".html"))
+        # Use full name now that underscores are gone
+        output_file = EXPORT_DIR / f"{input_file.stem}.html"
 
         missing_covers = generate_html(input_file, output_file)
 
