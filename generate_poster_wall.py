@@ -137,6 +137,7 @@ def generate_html(input_file, output_file):
     show_tino_filter = True
     show_wire_filter = True
     
+    is_hidden_page = False
     parsing_settings = False
     for line in header_raw.splitlines():
         line = line.strip()
@@ -186,7 +187,8 @@ def generate_html(input_file, output_file):
         
         # Previous Year
         prev_year = current_year - 1
-        if (input_file.parent / f"{prev_year}.txt").exists() and str(prev_year) not in hidden_lists:
+        # If current page is hidden, don't filter neighbors. Otherwise respect IS_HIDDEN.
+        if (input_file.parent / f"{prev_year}.txt").exists() and (is_hidden_page or str(prev_year) not in hidden_lists):
             auto_nav.append({"type": "link", "label": str(prev_year), "url": f"{prev_year}.html"})
             
         page_title = f"Records in {current_year}"
@@ -194,7 +196,7 @@ def generate_html(input_file, output_file):
         
         # Next Year
         next_year = current_year + 1
-        if (input_file.parent / f"{next_year}.txt").exists() and str(next_year) not in hidden_lists:
+        if (input_file.parent / f"{next_year}.txt").exists() and (is_hidden_page or str(next_year) not in hidden_lists):
             auto_nav.append({"type": "link", "label": str(next_year), "url": f"{next_year}.html"})
             
         nav_items = auto_nav
@@ -246,8 +248,9 @@ def generate_html(input_file, output_file):
     export_files = []
     for f in EXPORT_DIR.glob("*.html"):
         if f.is_file():
-            # Skip files marked as hidden (by checking if a corresponding .txt exists and is hidden)
-            if f.stem in hidden_lists:
+            # If current page is NOT hidden, filter out other hidden pages.
+            # If current page IS hidden, show everything.
+            if not is_hidden_page and f.stem in hidden_lists:
                 continue
             export_files.append(f.name)
     

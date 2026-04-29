@@ -57,9 +57,18 @@ a.active {
     padding: 12px 24px;
     margin-bottom: 24px;
     flex-wrap: nowrap;
+    flex-wrap: wrap;
     /* Prevent wrapping for nav/hamburger */
     background: #ffffff;
     box-shadow: 0 2px 15px rgba(0, 0, 0, 0.08);
+}
+
+.site-nav>* {
+    flex: 1 1 auto;
+}
+
+.hamburger-menu {
+    flex: 0 0 auto;
 }
 
 .site-nav a {
@@ -83,8 +92,21 @@ a.active {
     white-space: nowrap;
 }
 
+@media (max-width: 600px) {
+    .site-nav a:first-child {
+        display: none;
+    }
+
+    .nav-title {
+        font-size: 1em;
+    }
+}
+
+
 .hamburger-menu {
     position: relative;
+    flex: 0 0 auto;
+    margin-left: auto;
 }
 
 .hamburger-btn {
