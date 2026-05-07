@@ -257,27 +257,36 @@ def generate_html(input_file, output_file):
     export_files.sort()
     menu_links_html = "".join([f'        <a href="{f}">{f.replace(".html", "")}</a>\n' for f in export_files])
 
-    nav_html = '<nav class="site-nav">\n'
-    for item in nav_items:
-        if item["type"] == "link":
-            nav_html += f'        <a href="{item["url"]}">{html.escape(item["label"])}</a>\n'
-        else:
-            nav_html += f'        <span class="nav-title">{html.escape(item["label"])}</span>\n'
-    
-    nav_html += f"""
-        <div class="hamburger-menu" id="hamburgerMenu">
-            <button class="hamburger-btn" onclick="toggleMenu()" title="Open Navigation">
+    def build_nav(is_footer=False):
+        nav = '<nav class="site-nav">\n' if is_footer else '<nav class="site-nav">\n'
+        for item in nav_items:
+            if item["type"] == "link":
+                nav += f'        <a href="{item["url"]}">{html.escape(item["label"])}</a>\n'
+            else:
+                nav += f'        <span class="nav-title">{html.escape(item["label"])}</span>\n'
+        
+        menu_id = "menuContentFooter" if is_footer else "menuContent"
+        btn_id = "hamburgerBtnFooter" if is_footer else "hamburgerBtn"
+        menu_style = 'style="bottom: 50px; top: auto;"' if is_footer else ''
+        
+        nav += f"""
+        <div class="hamburger-menu" id="{'hamburgerMenuFooter' if is_footer else 'hamburgerMenu'}">
+            <button class="hamburger-btn" id="{btn_id}" onclick="toggleMenu('{menu_id}', '{btn_id}')" title="Open Navigation">
                 <span></span>
                 <span></span>
                 <span></span>
             </button>
-            <div class="menu-content" id="menuContent">
+            <div class="menu-content" id="{menu_id}" {menu_style}>
                 <div class="menu-header">Collection</div>
                 {menu_links_html}
             </div>
         </div>
-    """
-    nav_html += '    </nav>\n'
+        """
+        nav += '    </nav>\n'
+        return nav
+
+    nav_html = build_nav(is_footer=False)
+    nav_html_bottom = build_nav(is_footer=True)
 
     # Inject Nav and Controls into header (body section)
     controls_row = f"""
@@ -512,6 +521,7 @@ def generate_html(input_file, output_file):
 
     footer = f"""
     </div> <!-- .poster-wall -->
+    {nav_html_bottom}
     <button class="scroll-top-btn" onclick="window.scrollTo({{top: 0, behavior: 'smooth'}})">↑</button>
     <script>
         window.onscroll = function() {{
@@ -571,20 +581,25 @@ def generate_html(input_file, output_file):
             }}
         }}
 
-        function toggleMenu() {{
-            var menu = document.getElementById("menuContent");
-            menu.classList.toggle("show");
-            var btn = document.querySelector(".hamburger-btn");
-            btn.classList.toggle("active");
+        function toggleMenu(menuId, btnId) {{
+            var menu = document.getElementById(menuId || "menuContent");
+            var btn = document.getElementById(btnId) || document.querySelector(".hamburger-btn");
+            if(menu) menu.classList.toggle("show");
+            if(btn) btn.classList.toggle("active");
         }}
 
         // Close menu when clicking outside
         window.addEventListener('click', function(e) {{
-            var menu = document.getElementById("menuContent");
-            var btn = document.querySelector(".hamburger-btn");
-            if (menu && btn && !menu.contains(e.target) && !btn.contains(e.target)) {{
-                menu.classList.remove("show");
-                btn.classList.remove("active");
+            const menus = ["menuContent", "menuContentFooter"];
+            const btns = ["hamburgerBtn", "hamburgerBtnFooter"];
+            
+            for(let i=0; i<menus.length; i++) {{
+                var menu = document.getElementById(menus[i]);
+                var btn = document.getElementById(btns[i]);
+                if (menu && btn && !menu.contains(e.target) && !btn.contains(e.target)) {{
+                    menu.classList.remove("show");
+                    btn.classList.remove("active");
+                }}
             }}
         }});
 

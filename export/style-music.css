@@ -55,7 +55,7 @@ a.active {
     justify-content: space-between;
     gap: 20px;
     padding: 12px 24px;
-    margin-bottom: 24px;
+    margin: 0;
     flex-wrap: nowrap;
     flex-wrap: wrap;
     /* Prevent wrapping for nav/hamburger */
@@ -220,7 +220,7 @@ a.active {
     display: flex;
     align-items: center;
     gap: 10px;
-    margin-bottom: 18px;
+    margin: 12px 0;
     flex-wrap: wrap;
 }
 
@@ -324,6 +324,7 @@ a.active {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 20px;
+    margin: 12px 0;
 }
 
 .album-poster {
