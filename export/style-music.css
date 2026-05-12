@@ -1,7 +1,8 @@
 /* https://colorkit.co/palette/ff595e-ffca3a-8ac926-1982c4-6a4c93/ */
 
 :root {
-    --bg-color: #c0c0c0;
+    --bg-color: #fff;
+    --bg-color2: #56535b;
     --card-bg: #8ac926;
     --card-bg-2: #ffeb3b;
     --text-color-dark: #303030;
@@ -25,6 +26,9 @@ body {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     margin: 0;
     padding: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
 }
 
 a {
@@ -61,6 +65,10 @@ a.active {
     /* Prevent wrapping for nav/hamburger */
     background: #ffffff;
     box-shadow: 0 2px 15px rgba(0, 0, 0, 0.08);
+}
+
+.site-nav~.site-nav {
+    margin-top: auto;
 }
 
 .site-nav>* {
@@ -148,9 +156,9 @@ a.active {
     background-color: var(--text-color-light);
     box-shadow: 0 15px 45px rgba(0, 0, 0, 0.18);
     border-radius: 8px;
-    padding: 8px;
+    padding: 8px 8px 32px 8px;
     display: none;
-    max-height: 80vh;
+    max-height: 90vh;
     overflow-y: auto;
     z-index: 1000;
 
@@ -158,7 +166,7 @@ a.active {
 
 .menu-content.show {
     display: block;
-    column-count: 3;
+    column-count: 5;
     column-gap: 8px;
 }
 
@@ -220,7 +228,7 @@ a.active {
     display: flex;
     align-items: center;
     gap: 10px;
-    margin: 12px 0;
+    margin: 12px 0 0 0;
     flex-wrap: wrap;
 }
 
@@ -323,7 +331,7 @@ a.active {
 .poster-wall {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 20px;
+    gap: 12px;
     margin: 12px 0;
 }
 

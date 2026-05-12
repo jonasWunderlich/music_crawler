@@ -258,7 +258,7 @@ def generate_html(input_file, output_file):
     menu_links_html = "".join([f'        <a href="{f}">{f.replace(".html", "")}</a>\n' for f in export_files])
 
     def build_nav(is_footer=False):
-        nav = '<nav class="site-nav">\n' if is_footer else '<nav class="site-nav">\n'
+        nav = '<nav class="site-nav">\n' if is_footer else '<nav class="site-nav footer">\n'
         for item in nav_items:
             if item["type"] == "link":
                 nav += f'        <a href="{item["url"]}">{html.escape(item["label"])}</a>\n'
@@ -346,8 +346,7 @@ def generate_html(input_file, output_file):
     if initial_sort == "TAG_RATING":
         sorted_records = sorted(
             unique_records.values(), 
-            key=lambda x: (int(x.get('RATING')) if x.get('RATING', '').isdigit() else 0, x.get('ADDED', '')), 
-            reverse=True
+            key=lambda x: (-int(x.get('RATING')) if x.get('RATING', '').isdigit() else 0, x.get('ARTIST', '').lower(), x.get('ALBUM', '').lower())
         )
     elif initial_sort == "TAG_ADDED":
         sorted_records = sorted(unique_records.values(), key=lambda x: x.get('ADDED', '0000-00-00 00:00:00'), reverse=True)
@@ -623,13 +622,23 @@ def generate_html(input_file, output_file):
             posters.sort((a, b) => {{
                 var valA = a.getAttribute("data-" + criteria);
                 var valB = b.getAttribute("data-" + criteria);
-                var cmp = 0;
                 if (criteria === 'rating') {{
-                    cmp = parseInt(valA) - parseInt(valB);
+                    var cmp = parseInt(valA) - parseInt(valB);
+                    if (cmp !== 0) {{
+                        return cmp * currentSort.direction;
+                    }} else {{
+                        var artistA = a.getAttribute("data-artist") || "";
+                        var artistB = b.getAttribute("data-artist") || "";
+                        var artistCmp = artistA.localeCompare(artistB, 'de', {{sensitivity: 'base'}});
+                        if (artistCmp !== 0) return artistCmp;
+                        var albumA = a.getAttribute("data-album") || "";
+                        var albumB = b.getAttribute("data-album") || "";
+                        return albumA.localeCompare(albumB, 'de', {{sensitivity: 'base'}});
+                    }}
                 }} else {{
-                    cmp = valA.localeCompare(valB, 'de', {{sensitivity: 'base'}});
+                    var cmp = valA.localeCompare(valB, 'de', {{sensitivity: 'base'}});
+                    return cmp * currentSort.direction;
                 }}
-                return cmp * currentSort.direction;
             }});
             posters.forEach(poster => wall.appendChild(poster));
         }}
