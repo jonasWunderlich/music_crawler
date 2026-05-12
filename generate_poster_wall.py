@@ -17,6 +17,7 @@ OUTPUT_DIR = Path("album_covers/org")
 LISTS_DIR = Path("lists")
 EXPORT_DIR = Path("export")
 LEGACY_LINKS_FILE = Path("log/legacy/links.json")
+CONFIG_FILE = Path("config.json")
 
 def sanitize_filename(name):
     """Wandelt einen Album-/Künstlernamen in einen sicheren Dateinamen um."""
@@ -111,6 +112,13 @@ def fetch_bandcamp_links(artist, album):
     return links
 
 def generate_html(input_file, output_file):
+    config_data = {}
+    if CONFIG_FILE.exists():
+        try:
+            config_data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+        except:
+            pass
+
     content = input_file.read_text(encoding="utf-8")
     
     # Identify header (before first TAG_HIDDEN)
@@ -481,7 +489,7 @@ def generate_html(input_file, output_file):
                 {f'<a href="{html.escape(video_link)}" target="_blank" class="video-icon" title="Watch Video"></a>' if video_link and video_link.startswith('http') else ''}
             </div>
             <div class="top-right-icons">
-                {f'<div class="rating-circle">{rating}</div>' if rating.isdigit() and int(rating) > 0 else ''}
+                {f'<div class="rating-circle" title="{html.escape(config_data.get("rations", {}).get(str(rating), ""))}">{rating}</div>' if rating.isdigit() and int(rating) > 0 else ''}
             </div>
             <div class="album-overlay">
                 <div class="overlay-bookmarks">
