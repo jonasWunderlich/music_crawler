@@ -95,7 +95,7 @@ def sanitize_filename(name: str) -> str:
     # Mehrfache Bindestriche reduzieren
     name = re.sub(r'-+', '-', name)
     
-    return name.strip("-").lower()[:120]
+    return name.strip("-").lower()[:200]
 
 
 # ── Persistent Log ────────────────────────────────────────────────────────────
@@ -233,6 +233,44 @@ def parse_music_txt(filepath: Path) -> List[Dict[str, str]]:
 
 # ── Cover-Quellen ─────────────────────────────────────────────────────────────
 
+def try_bandcamp(artist: str, album: str, tag_date: str) -> Optional[bytes]:
+    log_file = get_log_path(tag_date, "links")
+    if not log_file.exists():
+        return None
+        
+    try:
+        links = json.loads(log_file.read_text(encoding="utf-8"))
+    except Exception as e:
+        log.debug("Fehler beim Laden von links.json: %s", e)
+        return None
+        
+    key = f"{artist} - {album}"
+    album_link = links.get(key, {}).get("ALBUM_LINK", "")
+    if not album_link or not album_link.startswith("http"):
+        return None
+        
+    try:
+        html_data = http_get(album_link)
+        if not html_data: return None
+        html_str = html_data.decode("utf-8", errors="ignore")
+        
+        # Try popupImage first (usually points to _10.jpg) or og:image
+        img_match = re.search(r'<a class="popupImage" href="([^"]+)"', html_str)
+        if not img_match:
+            img_match = re.search(r'<meta property="og:image" content="([^"]+)"', html_str)
+            
+        if img_match:
+            img_url = img_match.group(1)
+            # Force _10.jpg for max resolution 1200x1200px
+            img_url = re.sub(r'_\d+\.jpg$', '_10.jpg', img_url)
+            
+            cover = http_get(img_url)
+            if cover and len(cover) > 5000:
+                return cover
+    except Exception as e:
+        log.debug("Fehler bei Bandcamp Link Fetch: %s", e)
+    return None
+
 def try_coverartarchive(artist: str, album: str) -> Optional[bytes]:
     query = urllib.parse.quote(f'artist:"{artist}" AND release:"{album}"')
     url = f"https://musicbrainz.org/ws/2/release/?query={query}&limit=3&fmt=json"
@@ -365,6 +403,9 @@ def download_cover(album_info: dict, output_dir: Path) -> tuple[bool, Optional[s
 
     # 2. API Suche (Bestands-Logik)
     def try_all_apis(search_artist: str, search_album: str) -> Optional[tuple[bytes, str]]:
+        # Bandcamp (Best Quality)
+        data = try_bandcamp(search_artist, search_album, tag_date)
+        if data: return data, "Bandcamp"
         # MusicBrainz
         data = try_coverartarchive(search_artist, search_album)
         if data: return data, "Cover Art Archive"

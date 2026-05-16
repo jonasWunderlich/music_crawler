@@ -83,31 +83,52 @@ def get_hidden_lists():
     return hidden
 
 def fetch_bandcamp_links(artist, album):
-    query = urllib.parse.quote(f"{artist} {album}")
-    search_url = f"https://bandcamp.com/search?q={query}"
-    
-    links = {
-        "ARTIST_LINK": "",
-        "ALBUM_LINK": "",
-        "VIDEO_LINK": ""
-    }
-    
-    try:
-        req = urllib.request.Request(search_url, headers={'User-Agent': 'Mozilla/5.0'})
-        html_content = urllib.request.urlopen(req, timeout=10).read().decode('utf-8')
+    def search(search_artist):
+        url = "https://bandcamp.com/api/bcsearch_public_api/1/autocomplete_elastic"
+        payload = json.dumps({
+            "search_text": f"{search_artist} {album}",
+            "search_filter": "a",
+            "full_page": False,
+            "fan_id": None
+        }).encode("utf-8")
         
-        matches = re.findall(r'<div class="itemurl">.*?<a[^>]+href="([^"]+)"', html_content, re.DOTALL)
-        if matches:
-            first_url = matches[0].strip().split('?')[0]  # Remove parameters
-            if '.bandcamp.com' in first_url:
-                if '/album/' in first_url or '/track/' in first_url:
-                    links["ALBUM_LINK"] = first_url
-                    parsed_uri = urllib.parse.urlparse(first_url)
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0"
+        }
+        
+        links = {
+            "ARTIST_LINK": "",
+            "ALBUM_LINK": "",
+            "VIDEO_LINK": ""
+        }
+        
+        try:
+            req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
+            resp_data = urllib.request.urlopen(req, timeout=10).read()
+            j = json.loads(resp_data)
+            results = j.get("auto", {}).get("results", [])
+            if results:
+                first_res = results[0]
+                album_url = first_res.get("item_url_path", "").split("?")[0]
+                if album_url and album_url.startswith("http"):
+                    links["ALBUM_LINK"] = album_url
+                    parsed_uri = urllib.parse.urlparse(album_url)
                     links["ARTIST_LINK"] = f"https://{parsed_uri.netloc}"
                 else:
-                    links["ARTIST_LINK"] = first_url
-    except Exception as e:
-        print(f"Warning: Failed to fetch bandcamp links for {artist} - {album}: {e}")
+                    artist_url = first_res.get("item_url_root", "").split("?")[0]
+                    if artist_url and artist_url.startswith("http"):
+                        links["ARTIST_LINK"] = artist_url
+        except Exception as e:
+            print(f"Warning: Failed to fetch bandcamp links for {search_artist} - {album}: {e}")
+            
+        return links
+
+    links = search(artist)
+    if not links["ALBUM_LINK"] and not links["ARTIST_LINK"] and "," in artist:
+        cleaned_artist = artist.split(",")[0].strip()
+        print(f"  → Kein Treffer für '{artist}'. Versuche Fallback: '{cleaned_artist}'")
+        links = search(cleaned_artist)
         
     return links
 
