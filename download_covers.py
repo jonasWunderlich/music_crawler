@@ -100,18 +100,13 @@ def sanitize_filename(name: str) -> str:
 
 # ── Persistent Log ────────────────────────────────────────────────────────────
 
-def get_log_path(tag_date: str, log_type: str = "download") -> Path:
+def get_log_path(tag_date: str) -> Path:
     """Gibt den Pfad zur Logdatei für ein bestimmtes Jahr zurück."""
-    year_dir = LOG_DIR / tag_date
-    year_dir.mkdir(parents=True, exist_ok=True)
-    if log_type == "download":
-        return year_dir / "download_status.json"
-    elif log_type == "links":
-        return year_dir / "links.json"
-    return year_dir / f"{log_type}.json"
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    return LOG_DIR / f"{tag_date}.json"
 
 def load_log(tag_date: str) -> dict:
-    log_file = get_log_path(tag_date, "download")
+    log_file = get_log_path(tag_date)
     if log_file.exists():
         try:
             return json.loads(log_file.read_text(encoding="utf-8"))
@@ -120,8 +115,8 @@ def load_log(tag_date: str) -> dict:
     return {}
 
 def save_log(tag_date: str, data: dict):
-    log_file = get_log_path(tag_date, "download")
-    log_file.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    log_file = get_log_path(tag_date)
+    log_file.write_text(json.dumps(data, indent=4, ensure_ascii=False), encoding="utf-8")
 
 
 # ── HTML-Parser ──────────────────────────────────────────────────────────────
@@ -234,7 +229,7 @@ def parse_music_txt(filepath: Path) -> List[Dict[str, str]]:
 # ── Cover-Quellen ─────────────────────────────────────────────────────────────
 
 def try_bandcamp(artist: str, album: str, tag_date: str) -> Optional[bytes]:
-    log_file = get_log_path(tag_date, "links")
+    log_file = get_log_path(tag_date)
     if not log_file.exists():
         return None
         
@@ -245,7 +240,7 @@ def try_bandcamp(artist: str, album: str, tag_date: str) -> Optional[bytes]:
         return None
         
     key = f"{artist} - {album}"
-    album_link = links.get(key, {}).get("ALBUM_LINK", "")
+    album_link = links.get(key, {}).get("links", {}).get("ALBUM_LINK", "")
     if not album_link or not album_link.startswith("http"):
         return None
         
@@ -645,7 +640,7 @@ def main():
         log_data = log_cache[tag_date]
         
         # Überspringe fehlgeschlagene, wenn retry_choice False ist
-        if not retry_choice and log_data.get(key, {}).get("status") == "failed":
+        if not retry_choice and log_data.get(key, {}).get("album_art", {}).get("status") == "failed":
             continue
         
         # Jetzt zählen wir dieses Album als verarbeitet
@@ -659,15 +654,16 @@ def main():
             del legacy_log[key]
             legacy_dirty = True
 
-        log_data[key] = {
+        if key not in log_data: log_data[key] = {}
+        log_data[key]["album_art"] = {
             "status": "success" if ok else "failed",
             "timestamp": time.ctime()
         }
         if ok:
-            log_data[key]["source"] = source
+            log_data[key]["album_art"]["source"] = source
             success += 1
         else:
-            log_data[key]["reason"] = source
+            log_data[key]["album_art"]["reason"] = source
             failed += 1
         
         save_log(tag_date, log_data)
