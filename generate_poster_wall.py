@@ -40,12 +40,12 @@ def parse_tags(text):
         data[tag_name] = value
     return data
 
-def get_log_path(tag_date: str, log_type: str = "links") -> Path:
+def get_log_path(tag_date: str) -> Path:
     """Nutzt die Log-Pfad-Logik aus download_covers."""
-    return download_covers.get_log_path(tag_date, log_type)
+    return download_covers.get_log_path(tag_date)
 
-def load_links_log(tag_date: str):
-    log_file = get_log_path(tag_date, "links")
+def load_data_log(tag_date: str):
+    log_file = get_log_path(tag_date)
     if log_file.exists():
         try:
             with open(log_file, "r", encoding="utf-8") as f:
@@ -55,8 +55,8 @@ def load_links_log(tag_date: str):
             return {}
     return {}
 
-def save_links_log(tag_date: str, log_data: dict):
-    log_file = get_log_path(tag_date, "links")
+def save_data_log(tag_date: str, log_data: dict):
+    log_file = get_log_path(tag_date)
     try:
         with open(log_file, "w", encoding="utf-8") as f:
             json.dump(log_data, f, indent=4, ensure_ascii=False)
@@ -132,6 +132,56 @@ def fetch_bandcamp_links(artist, album):
         
     return links
 
+def fetch_musicbrainz_data(artist, album):
+    import time
+    query = urllib.parse.quote(f'artist:"{artist}" AND releasegroup:"{album}"')
+    url = f"https://musicbrainz.org/ws/2/release-group/?query={query}&limit=1&fmt=json"
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'MusicCrawler/1.0'})
+        data = urllib.request.urlopen(req, timeout=10).read()
+        j = json.loads(data)
+        rgs = j.get("release-groups", [])
+        if rgs:
+            rg_id = rgs[0].get("id")
+            if rg_id:
+                time.sleep(1) # Be nice to MusicBrainz rate limits
+                url2 = f"https://musicbrainz.org/ws/2/release-group/{rg_id}?fmt=json&inc=url-rels+ratings+genres+annotation"
+                req2 = urllib.request.Request(url2, headers={'User-Agent': 'MusicCrawler/1.0'})
+                data2 = urllib.request.urlopen(req2, timeout=10).read()
+                return json.loads(data2)
+    except Exception as e:
+        print(f"Warning: Failed to fetch MusicBrainz data for {artist} - {album}: {e}")
+    return {}
+
+def get_wikipedia_from_mb(mb_data):
+    if not mb_data:
+        return ""
+    
+    relations = mb_data.get("relations", [])
+    wikidata_url = ""
+    for rel in relations:
+        if rel.get("type") == "wikidata":
+            url = rel.get("url", {}).get("resource", "")
+            if "wikidata.org" in url:
+                wikidata_url = url
+                break
+                
+    if not wikidata_url:
+        return ""
+        
+    try:
+        qid = wikidata_url.rstrip("/").split("/")[-1]
+        api_url = f"https://www.wikidata.org/w/api.php?action=wbgetentities&ids={qid}&props=sitelinks/urls&format=json"
+        req = urllib.request.Request(api_url, headers={'User-Agent': 'MusicCrawler/1.0'})
+        data = json.loads(urllib.request.urlopen(req, timeout=10).read())
+        sitelinks = data.get("entities", {}).get(qid, {}).get("sitelinks", {})
+        if "enwiki" in sitelinks:
+            return sitelinks["enwiki"].get("url", "")
+    except Exception as e:
+        print(f"Warning: Failed to fetch Wikipedia link from Wikidata ({wikidata_url}): {e}")
+        
+    return ""
+
 def generate_html(input_file, output_file):
     config_data = {}
     if CONFIG_FILE.exists():
@@ -139,6 +189,12 @@ def generate_html(input_file, output_file):
             config_data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
         except:
             pass
+
+    search_musicbrainz = config_data.get("search_musicbrainz", True)
+    search_musicbrainz_missing = config_data.get("search_musicbrainz_missing", False)
+    search_musicbrainz_full = config_data.get("search_musicbrainz_full", False)
+    search_bandcamp = config_data.get("search_bandcamp", True)
+    search_bandcamp_missing = config_data.get("search_bandcamp_missing", False)
 
     content = input_file.read_text(encoding="utf-8")
     
@@ -359,12 +415,12 @@ def generate_html(input_file, output_file):
 
     html_cards = []
     
-    links_log_cache = {}
-    links_dirty_years = set()
+    data_log_cache = {}
+    legacy_dirty = False
+    data_dirty_years = set()
     
     # Legacy Links laden
     legacy_links = {}
-    legacy_dirty = False
     if LEGACY_LINKS_FILE.exists():
         try:
             legacy_links = json.loads(LEGACY_LINKS_FILE.read_text(encoding="utf-8"))
@@ -410,14 +466,12 @@ def generate_html(input_file, output_file):
         tino = tags.get('TINO', '0')
         wire = tags.get('WIRE', '0')
 
-        artist = tags.get('ARTIST')
-        album = tags.get('ALBUM')
         tag_date = tags.get('DATE', '3000')
         log_key = f"{artist} - {album}"
 
-        if tag_date not in links_log_cache:
-            links_log_cache[tag_date] = load_links_log(tag_date)
-        links_log = links_log_cache[tag_date]
+        if tag_date not in data_log_cache:
+            data_log_cache[tag_date] = load_data_log(tag_date)
+        data_log = data_log_cache[tag_date]
         
         current_video_tag = tags.get('VIDEO', '').strip()
         if current_video_tag == '?':
@@ -427,7 +481,29 @@ def generate_html(input_file, output_file):
         if current_album_link_tag == '?':
             current_album_link_tag = ''
 
-        if log_key not in links_log:
+        # Check if cover already exists
+        tag_date_cover = tags.get('DATE', '0000')
+        thumb_name_cover = f"{sanitize_filename(artist)}--{sanitize_filename(album)}.webp"
+        thumb_path_cover = THUMB_DIR / tag_date_cover / thumb_name_cover
+        original_name_cover = f"{sanitize_filename(artist)}--{sanitize_filename(album)}.jpg"
+        original_path_cover = OUTPUT_DIR / tag_date_cover / original_name_cover
+        cover_found = thumb_path_cover.exists() or original_path_cover.exists()
+
+        if log_key not in data_log:
+            data_log[log_key] = {}
+
+        # Determine if we need to search Bandcamp links
+        needs_bandcamp_search = False
+        if search_bandcamp and not cover_found:
+            if "links" not in data_log[log_key]:
+                if log_key not in legacy_links:
+                    needs_bandcamp_search = True
+            elif search_bandcamp_missing:
+                links_entry = data_log[log_key].get("links", {})
+                if not links_entry or (not links_entry.get("ALBUM_LINK") and not links_entry.get("ARTIST_LINK")):
+                    needs_bandcamp_search = True
+
+        if "links" not in data_log[log_key]:
             # Zuerst im Legacy-Log nachsehen
             if log_key in legacy_links:
                 print(f"Using legacy links for: {log_key}")
@@ -436,35 +512,83 @@ def generate_html(input_file, output_file):
                 if current_video_tag: links["VIDEO_LINK"] = current_video_tag
                 if current_album_link_tag: links["ALBUM_LINK"] = current_album_link_tag
                 
-                links_log[log_key] = links
-                links_dirty_years.add(tag_date)
+                data_log[log_key]["links"] = links
+                data_dirty_years.add(tag_date)
                 
                 # Aus Legacy löschen
                 del legacy_links[log_key]
                 legacy_dirty = True
             else:
-                print(f"Fetching links for: {log_key}")
-                links = fetch_bandcamp_links(artist, album)
+                if needs_bandcamp_search:
+                    print(f"Fetching links for: {log_key}")
+                    links = fetch_bandcamp_links(artist, album)
+                    time.sleep(1) # Be nice to Bandcamp avoiding rate limits
+                else:
+                    links = {"ARTIST_LINK": "", "ALBUM_LINK": "", "VIDEO_LINK": ""}
+                
                 links["VIDEO_LINK"] = current_video_tag
                 if current_album_link_tag:
                     links["ALBUM_LINK"] = current_album_link_tag
-                links_log[log_key] = links
-                links_dirty_years.add(tag_date)
-                time.sleep(1) # Be nice to Bandcamp avoiding rate limits
-        else:
-            links = links_log[log_key]
-            # Update video link in cache if the text file has a new one
-            if current_video_tag and links.get("VIDEO_LINK") != current_video_tag:
-                links["VIDEO_LINK"] = current_video_tag
-                links_dirty_years.add(tag_date)
-            # Update album link in cache if explicitly provided in text file
-            if current_album_link_tag and links.get("ALBUM_LINK") != current_album_link_tag:
-                links["ALBUM_LINK"] = current_album_link_tag
-                links_dirty_years.add(tag_date)
-        
+                data_log[log_key]["links"] = links
+                data_dirty_years.add(tag_date)
+        elif needs_bandcamp_search:
+            print(f"Fetching missing/new links for: {log_key}")
+            links = fetch_bandcamp_links(artist, album)
+            time.sleep(1)
+            existing_links = data_log[log_key].get("links", {})
+            if links.get("ALBUM_LINK"):
+                existing_links["ALBUM_LINK"] = links["ALBUM_LINK"]
+            if links.get("ARTIST_LINK"):
+                existing_links["ARTIST_LINK"] = links["ARTIST_LINK"]
+            if current_video_tag:
+                existing_links["VIDEO_LINK"] = current_video_tag
+            if current_album_link_tag:
+                existing_links["ALBUM_LINK"] = current_album_link_tag
+            data_log[log_key]["links"] = existing_links
+            data_dirty_years.add(tag_date)
+
+        links = data_log[log_key]["links"]
+        if current_album_link_tag and links.get("ALBUM_LINK") != current_album_link_tag:
+            links["ALBUM_LINK"] = current_album_link_tag
+            data_dirty_years.add(tag_date)
+                
+        mb_entry = data_log[log_key].get("musicbrainz")
+        needs_mb_search = False
+        if search_musicbrainz and not cover_found:
+            if search_musicbrainz_full:
+                needs_mb_search = True
+            elif "musicbrainz" not in data_log[log_key]:
+                needs_mb_search = True
+            elif (not mb_entry or mb_entry.get("not_found")) and search_musicbrainz_missing:
+                needs_mb_search = True
+
+        if search_musicbrainz:
+            if needs_mb_search:
+                print(f"Fetching MusicBrainz data for: {log_key}")
+                mb_data = fetch_musicbrainz_data(artist, album)
+                if not mb_data:
+                    mb_data = {"not_found": True}
+                data_log[log_key]["musicbrainz"] = mb_data
+                data_dirty_years.add(tag_date)
+                
+                wiki_url = get_wikipedia_from_mb(mb_data)
+                data_log[log_key]["wikipedia"] = wiki_url
+                
+                time.sleep(1)
+            elif "wikipedia" not in data_log[log_key]:
+                mb_data = data_log[log_key].get("musicbrainz", {})
+                wiki_url = get_wikipedia_from_mb(mb_data)
+                data_log[log_key]["wikipedia"] = wiki_url
+                data_dirty_years.add(tag_date)
+                if wiki_url:
+                    print(f"Found Wikipedia link for: {log_key}")
+
+        links = data_log[log_key]["links"]
+        mb_data = data_log[log_key].get("musicbrainz", {})
         artist_link = links.get("ARTIST_LINK", "")
         album_link = links.get("ALBUM_LINK", "")
         video_link = links.get("VIDEO_LINK", "")
+        wiki_url = data_log[log_key].get("wikipedia", "")
 
         thumb_name = f"{sanitize_filename(artist)}--{sanitize_filename(album)}.webp"
         tag_date = tags.get('DATE', '0000')
@@ -508,6 +632,7 @@ def generate_html(input_file, output_file):
             {f'<div class="vinyl-overlay" title="Owned (Vinyl)"></div>' if own in ['1', 'own'] else ''}
             <div class="top-left-icons">
                 {f'<a href="{html.escape(video_link)}" target="_blank" class="video-icon" title="Watch Video"></a>' if video_link and video_link.startswith('http') else ''}
+                {f'<a href="{html.escape(wiki_url)}" target="_blank" class="wikipedia-icon" title="Wikipedia Article"></a>' if wiki_url and wiki_url.startswith('http') else ''}
             </div>
             <div class="top-right-icons">
                 {f'<div class="rating-circle" title="{html.escape(config_data.get("rations", {}).get(str(rating), ""))}">{rating}</div>' if rating.isdigit() and int(rating) > 0 else ''}
@@ -552,6 +677,32 @@ def generate_html(input_file, output_file):
     {nav_html_bottom}
     <button class="scroll-top-btn" onclick="window.scrollTo({{top: 0, behavior: 'smooth'}})">↑</button>
     <script>
+        // Toggle album info visibility
+        function toggleInfoVisibility(hide) {{
+            if (hide) {{
+                document.body.classList.add('hide-info');
+                localStorage.setItem('hideAlbumInfo', 'true');
+            }} else {{
+                document.body.classList.remove('hide-info');
+                localStorage.removeItem('hideAlbumInfo');
+            }}
+        }}
+
+        document.addEventListener('keydown', function(e) {{
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {{
+                return;
+            }}
+            if (e.key === 'h' || e.key === 'H') {{
+                const isHidden = document.body.classList.contains('hide-info');
+                toggleInfoVisibility(!isHidden);
+            }}
+        }});
+
+        // Restore state on load
+        if (localStorage.getItem('hideAlbumInfo') === 'true') {{
+            document.body.classList.add('hide-info');
+        }}
+
         window.onscroll = function() {{
             var btn = document.querySelector(".scroll-top-btn");
             if (document.body.scrollTop > 300 || document.documentElement.scrollTop > 300) {{
@@ -692,9 +843,9 @@ def generate_html(input_file, output_file):
     final_html = header + '\n    <div class="poster-wall">\n' + "\n".join(html_cards) + "\n" + footer
     output_file.write_text(final_html, encoding="utf-8")
     
-    if links_dirty_years:
-        for year in links_dirty_years:
-            save_links_log(year, links_log_cache[year])
+    if data_dirty_years:
+        for year in data_dirty_years:
+            save_data_log(year, data_log_cache[year])
     
     if legacy_dirty:
         LEGACY_LINKS_FILE.write_text(json.dumps(legacy_links, indent=4, ensure_ascii=False), encoding="utf-8")
@@ -772,14 +923,16 @@ def main():
                         del legacy_log[key]
                         legacy_dirty = True
 
-                    log_data[key] = {
+                    if key not in log_data:
+                        log_data[key] = {}
+                    log_data[key]["album_art"] = {
                         "status": "success" if ok else "failed",
                         "timestamp": time.ctime()
                     }
                     if ok:
-                        log_data[key]["source"] = source
+                        log_data[key]["album_art"]["source"] = source
                     else:
-                        log_data[key]["reason"] = source
+                        log_data[key]["album_art"]["reason"] = source
                     download_covers.save_log(tag_date, log_data)
                 
                 if legacy_dirty:

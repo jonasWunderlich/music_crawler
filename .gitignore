@@ -12,3 +12,4 @@ download_log.json
 links_log.json
 export/thumb/
 export/*.html
+test_*

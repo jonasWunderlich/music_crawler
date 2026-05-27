@@ -1,5 +1,10 @@
 {
-    "rations": {
+    "search_musicbrainz": true,
+    "search_musicbrainz_missing": false,
+    "search_musicbrainz_full": false,
+    "search_bandcamp": true,
+    "search_bandcamp_missing": false,
+    "ratings": {
         "1": "It hurts",
         "2": "Thery is more music in my farts",
         "3": "I feel sleepy",
