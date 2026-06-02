@@ -834,7 +834,57 @@ def generate_html(input_file, output_file):
                     }}
                 }}
             }}
+
+            // Clipboard Copy on Card Click
+            const wall = document.querySelector(".poster-wall");
+            if (wall) {{
+                wall.addEventListener('click', function(e) {{
+                    const poster = e.target.closest('.album-poster');
+                    if (!poster) return;
+
+                    // If clicked a sub-link inside the poster (like artist, album, video, wikipedia links)
+                    // we allow the link to open normally and do not copy to clipboard.
+                    const closestLink = e.target.closest('a');
+                    if (closestLink && closestLink !== poster) {{
+                        return;
+                    }}
+
+                    const artist = poster.getAttribute('data-artist');
+                    const album = poster.getAttribute('data-album');
+                    if (artist && album) {{
+                        const copyText = artist + " - " + album;
+                        navigator.clipboard.writeText(copyText).then(() => {{
+                            showToast("Kopiert: " + copyText);
+                        }}).catch(err => {{
+                            console.error('Fehler beim Kopieren:', err);
+                        }});
+                    }}
+                }});
+            }}
         }});
+
+        function showToast(message) {{
+            let toast = document.getElementById("copy-toast");
+            if (!toast) {{
+                toast = document.createElement("div");
+                toast.id = "copy-toast";
+                toast.className = "copy-toast";
+                document.body.appendChild(toast);
+            }}
+            toast.textContent = message;
+            
+            // Remove show class and trigger layout reflow to restart animation
+            toast.classList.remove("show");
+            void toast.offsetWidth;
+            toast.classList.add("show");
+            
+            if (window.copyToastTimeout) {{
+                clearTimeout(window.copyToastTimeout);
+            }}
+            window.copyToastTimeout = setTimeout(() => {{
+                toast.classList.remove("show");
+            }}, 2000);
+        }}
     </script>
 </body>
 </html>

@@ -344,6 +344,7 @@ a.active {
     overflow: hidden;
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
     transition: transform 0.3s, box-shadow 0.3s;
+    cursor: pointer; /* Click to copy artist and album info */
 }
 
 .album-poster:hover {
@@ -395,6 +396,19 @@ a.active {
     filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.8));
 }
 
+.wikipedia-icon {
+    position: relative;
+    width: 34px;
+    height: 34px;
+    background-color: var(--text-color-link);
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12.09 13.119c-.936 1.932-2.217 4.548-2.853 5.728-.616 1.074-1.127.931-1.532.029-1.406-3.321-4.293-9.144-5.651-12.409-.251-.601-.441-.987-.619-1.139-.181-.15-.554-.24-1.122-.271C.103 5.033 0 4.982 0 4.898v-.455l.052-.045c.924-.005 5.401 0 5.401 0l.051.045v.434c0 .119-.075.176-.225.176l-.564.031c-.485.029-.727.164-.727.436 0 .135.053.33.166.601 1.082 2.646 4.818 10.521 4.818 10.521l2.681-5.312-2.278-4.916c-.202-.436-.39-.725-.571-.862-.178-.139-.527-.209-1.045-.209-.158 0-.258-.052-.258-.176v-.434l.054-.045c.685-.005 4.27 0 4.27 0l.054.045v.434c0 .119-.079.176-.237.176-.609.014-.914.171-.914.472 0 .09.029.209.09.346l1.562 3.479 1.559-3.07c.136-.271.207-.466.207-.587 0-.331-.342-.504-1.025-.519-.151 0-.26-.057-.26-.176v-.434l.051-.045c.62-.005 3.853 0 3.853 0l.048.045v.434c0 .119-.074.176-.222.176-.744.031-1.201.36-1.57 1.106l-2.096 4.199 2.601 5.325 4.699-10.2c.127-.262.19-.472.19-.63 0-.328-.354-.489-1.058-.489-.166 0-.26-.057-.26-.176v-.434l.055-.045c.604-.005 3.569 0 3.569 0l.049.045v.434c0 .119-.072.176-.219.176-.571.014-1.004.245-1.302.692-.297.449-3.731 7.541-5.253 10.693-.9 1.865-1.449 2.632-2.084 2.632-.547 0-1.074-.497-1.631-1.818l-2.678-6.237z'/%3E%3C/svg%3E") no-repeat center / contain;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12.09 13.119c-.936 1.932-2.217 4.548-2.853 5.728-.616 1.074-1.127.931-1.532.029-1.406-3.321-4.293-9.144-5.651-12.409-.251-.601-.441-.987-.619-1.139-.181-.15-.554-.24-1.122-.271C.103 5.033 0 4.982 0 4.898v-.455l.052-.045c.924-.005 5.401 0 5.401 0l.051.045v.434c0 .119-.075.176-.225.176l-.564.031c-.485.029-.727.164-.727.436 0 .135.053.33.166.601 1.082 2.646 4.818 10.521 4.818 10.521l2.681-5.312-2.278-4.916c-.202-.436-.39-.725-.571-.862-.178-.139-.527-.209-1.045-.209-.158 0-.258-.052-.258-.176v-.434l.054-.045c.685-.005 4.27 0 4.27 0l.054.045v.434c0 .119-.079.176-.237.176-.609.014-.914.171-.914.472 0 .09.029.209.09.346l1.562 3.479 1.559-3.07c.136-.271.207-.466.207-.587 0-.331-.342-.504-1.025-.519-.151 0-.26-.057-.26-.176v-.434l.051-.045c.62-.005 3.853 0 3.853 0l.048.045v.434c0 .119-.074.176-.222.176-.744.031-1.201.36-1.57 1.106l-2.096 4.199 2.601 5.325 4.699-10.2c.127-.262.19-.472.19-.63 0-.328-.354-.489-1.058-.489-.166 0-.26-.057-.26-.176v-.434l.055-.045c.604-.005 3.569 0 3.569 0l.049.045v.434c0 .119-.072.176-.219.176-.571.014-1.004.245-1.302.692-.297.449-3.731 7.541-5.253 10.693-.9 1.865-1.449 2.632-2.084 2.632-.547 0-1.074-.497-1.631-1.818l-2.678-6.237z'/%3E%3C/svg%3E") no-repeat center / contain;
+    text-decoration: none;
+    transition: background-color 0.3s, transform 0.3s, filter 0.3s;
+    display: inline-block;
+    filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.8));
+}
+
 .bookmark-tino,
 .bookmark-wire {
     position: relative;
@@ -432,6 +446,12 @@ a.active {
     background-color: var(--text-color-link-hover);
     transform: scale(1.15);
     filter: drop-shadow(0 4px 8px rgba(255, 0, 0, 0.6));
+}
+
+.wikipedia-icon:hover {
+    background-color: var(--text-color-link-hover);
+    transform: scale(1.15);
+    filter: drop-shadow(0 4px 8px rgba(255, 255, 255, 0.6));
 }
 
 .album-artist {
@@ -612,4 +632,41 @@ a.album-poster {
     .album-meta {
         font-size: 0.6em;
     }
+}
+
+/* Keyboard shortcut 'h' support to hide album info overlays */
+body.hide-info .album-poster .album-overlay,
+body.hide-info .album-poster .top-left-icons,
+body.hide-info .album-poster .top-right-icons,
+body.hide-info .album-poster .vinyl-overlay {
+    display: none !important;
+}
+
+/* Clipboard copy toast notification */
+.copy-toast {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: rgba(30, 30, 30, 0.95);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: #ffffff;
+    padding: 12px 24px;
+    border-radius: 30px;
+    font-size: 14px;
+    font-weight: 500;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    opacity: 0;
+    transition: transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.35s ease;
+    z-index: 10000;
+    pointer-events: none;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.copy-toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
 }
