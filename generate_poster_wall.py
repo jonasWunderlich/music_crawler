@@ -548,6 +548,9 @@ def generate_html(input_file, output_file):
             data_dirty_years.add(tag_date)
 
         links = data_log[log_key]["links"]
+        if current_video_tag and links.get("VIDEO_LINK") != current_video_tag:
+            links["VIDEO_LINK"] = current_video_tag
+            data_dirty_years.add(tag_date)
         if current_album_link_tag and links.get("ALBUM_LINK") != current_album_link_tag:
             links["ALBUM_LINK"] = current_album_link_tag
             data_dirty_years.add(tag_date)
