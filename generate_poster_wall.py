@@ -63,24 +63,51 @@ def save_data_log(tag_date: str, log_data: dict):
     except Exception as e:
         print(f"Error saving {log_file}: {e}")
 
-def get_hidden_lists():
-    """Scans all .txt files in LISTS_DIR to find those marked with IS_HIDDEN=1."""
-    hidden = set()
-    if not LISTS_DIR.exists():
-        return hidden
-    for txt_file in LISTS_DIR.glob("*.txt"):
+def download_missing_covers(missing_covers):
+    log_cache = {}
+    legacy_log = {}
+    legacy_dirty = False
+    if download_covers.LEGACY_LOG_FILE.exists():
         try:
-            # We only need to check the header area for settings
-            with open(txt_file, "r", encoding="utf-8", errors="ignore") as f:
-                for line in f:
-                    if "TAG_HIDDEN=" in line: # End of header
-                        break
-                    if "IS_HIDDEN=1" in line:
-                        hidden.add(txt_file.stem)
-                        break
+            legacy_log = json.loads(download_covers.LEGACY_LOG_FILE.read_text(encoding="utf-8"))
         except:
-            continue
-    return hidden
+            pass
+
+    for tags in missing_covers:
+        tag_date = tags.get('DATE', '0000')
+        album_info = {
+            "artist": tags.get('ARTIST'),
+            "album": tags.get('ALBUM'),
+            "label": tags.get('LABEL'),
+            "date": tag_date
+        }
+        key = f"{album_info['artist']} - {album_info['album']}"
+        print(f"Processing: {key}")
+        
+        if tag_date not in log_cache:
+            log_cache[tag_date] = download_covers.load_log(tag_date)
+        log_data = log_cache[tag_date]
+
+        ok, source, _ = download_covers.download_cover(album_info, OUTPUT_DIR)
+        
+        if key in legacy_log:
+            del legacy_log[key]
+            legacy_dirty = True
+
+        if key not in log_data:
+            log_data[key] = {}
+        log_data[key]["album_art"] = {
+            "status": "success" if ok else "failed",
+            "timestamp": time.ctime()
+        }
+        if ok:
+            log_data[key]["album_art"]["source"] = source
+        else:
+            log_data[key]["album_art"]["reason"] = source
+        download_covers.save_log(tag_date, log_data)
+    
+    if legacy_dirty:
+        download_covers.LEGACY_LOG_FILE.write_text(json.dumps(legacy_log, indent=2, ensure_ascii=False), encoding="utf-8")
 
 def fetch_bandcamp_links(artist, album):
     def search(search_artist):
@@ -182,7 +209,7 @@ def get_wikipedia_from_mb(mb_data):
         
     return ""
 
-def generate_html(input_file, output_file):
+def generate_html(input_file, output_file, is_year_file=None, current_year=None, records_content=None, menu_files=None, is_decade_file=False, current_decade=None, all_decades=None, all_years=None):
     config_data = {}
     if CONFIG_FILE.exists():
         try:
@@ -196,95 +223,132 @@ def generate_html(input_file, output_file):
     search_bandcamp = config_data.get("search_bandcamp", True)
     search_bandcamp_missing = config_data.get("search_bandcamp_missing", False)
 
-    content = input_file.read_text(encoding="utf-8")
-    
-    # Identify header (before first TAG_HIDDEN)
-    header_end_idx = content.find("TAG_HIDDEN=")
-    if header_end_idx == -1:
-        print("Error: No TAG_HIDDEN found in file.")
-        return []
+    if records_content is not None:
+        content = records_content
+        header_raw = ""
+        records_raw = content
+    else:
+        content = input_file.read_text(encoding="utf-8")
+        
+        # Identify header (before first TAG_HIDDEN)
+        header_end_idx = content.find("TAG_HIDDEN=")
+        if header_end_idx == -1:
+            print("Error: No TAG_HIDDEN found in file.")
+            return []
 
-    # Get hidden lists early so navigation can use it
-    hidden_lists = get_hidden_lists()
-
-    header_raw = content[:header_end_idx]
-    records_raw = content[header_end_idx:]
+        header_raw = content[:header_end_idx]
+        records_raw = content[header_end_idx:]
 
     # Determine if it's a year-based file
-    is_year_file = input_file.stem.isdigit()
-    current_year = int(input_file.stem) if is_year_file else None
+    if is_year_file is None:
+        is_year_file = input_file.stem.isdigit() if input_file else False
+    if current_year is None:
+        current_year = int(input_file.stem) if (input_file and is_year_file) else None
 
     # Parse Navigation, Title, and Sort from header_raw
-    nav_items = []
-    page_title = "Records"
-    initial_sort = "TAG_RATING"
-    show_date = False
-    show_tino_filter = True
-    show_wire_filter = True
-    
-    is_hidden_page = False
-    parsing_settings = False
-    for line in header_raw.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-            
-        if line.startswith("***"):
-            parsing_settings = (line.lower() == "*** settings")
-            continue
-        
-        if parsing_settings:
-            if "=" in line:
-                key, val = line.split("=", 1)
-                k = key.strip().upper()
-                v = val.strip()
-                if k == "SORT_LIST_ORDER":
-                    initial_sort = v.upper()
-                elif k == "SHOW_DATE":
-                    show_date = (v == "1")
-                elif k == "FILTER__TAG_TINO":
-                    show_tino_filter = (v != "0")
-                elif k == "FILTER__TAG_WIRE":
-                    show_wire_filter = (v != "0")
-                elif k == "IS_HIDDEN":
-                    is_hidden_page = (v == "1")
-            else:
-                # Handle direct values for backward compatibility
-                initial_sort = line.upper()
-            
-            if initial_sort == "DEFAULT":
-                initial_sort = "ORIGINAL"
-            # We stay in settings mode until we see NAV or TITEL or empty line
-            continue
-
-        if line.startswith("NAV="):
-            parts = line[4:].split(",")
-            if len(parts) == 2:
-                nav_items.append({"type": "link", "label": parts[0].strip(), "url": parts[1].strip()})
-        elif line.startswith("TITEL="):
-            page_title = line[6:].strip()
-            nav_items.append({"type": "title", "label": page_title})
-
-    # Automate Navigation for year-based files
-    if is_year_file:
+    if is_decade_file:
         auto_nav = []
         auto_nav.append({"type": "link", "label": "Home", "url": "../index.html"})
-        
-        # Previous Year
+        if all_decades and current_decade in all_decades:
+            idx = all_decades.index(current_decade)
+            if idx > 0:
+                prev_dec = all_decades[idx - 1]
+                auto_nav.append({"type": "link", "label": prev_dec, "url": f"{prev_dec}.html"})
+        page_title = f"{current_decade} (Rating >= 7)"
+        auto_nav.append({"type": "title", "label": page_title})
+        if all_decades and current_decade in all_decades:
+            idx = all_decades.index(current_decade)
+            if idx < len(all_decades) - 1:
+                next_dec = all_decades[idx + 1]
+                auto_nav.append({"type": "link", "label": next_dec, "url": f"{next_dec}.html"})
+        nav_items = auto_nav
+        initial_sort = "TAG_RATING"
+        show_date = True
+        show_tino_filter = True
+        show_wire_filter = True
+    elif records_content is not None and is_year_file:
+        auto_nav = []
+        auto_nav.append({"type": "link", "label": "Home", "url": "../index.html"})
         prev_year = current_year - 1
-        # If current page is hidden, don't filter neighbors. Otherwise respect IS_HIDDEN.
-        if (input_file.parent / f"{prev_year}.txt").exists() and (is_hidden_page or str(prev_year) not in hidden_lists):
+        if all_years and prev_year in all_years:
             auto_nav.append({"type": "link", "label": str(prev_year), "url": f"{prev_year}.html"})
-            
         page_title = f"Records in {current_year}"
         auto_nav.append({"type": "title", "label": page_title})
-        
-        # Next Year
         next_year = current_year + 1
-        if (input_file.parent / f"{next_year}.txt").exists() and (is_hidden_page or str(next_year) not in hidden_lists):
+        if all_years and next_year in all_years:
             auto_nav.append({"type": "link", "label": str(next_year), "url": f"{next_year}.html"})
-            
         nav_items = auto_nav
+        initial_sort = "TAG_RATING"
+        show_date = False
+        show_tino_filter = True
+        show_wire_filter = True
+    else:
+        nav_items = []
+        page_title = "Records"
+        initial_sort = "TAG_RATING"
+        show_date = False
+        show_tino_filter = True
+        show_wire_filter = True
+        
+        parsing_settings = False
+        for line in header_raw.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+                
+            if line.startswith("***"):
+                parsing_settings = (line.lower() == "*** settings")
+                continue
+            
+            if parsing_settings:
+                if "=" in line:
+                    key, val = line.split("=", 1)
+                    k = key.strip().upper()
+                    v = val.strip()
+                    if k == "SORT_LIST_ORDER":
+                        initial_sort = v.upper()
+                    elif k == "SHOW_DATE":
+                        show_date = (v == "1")
+                    elif k == "FILTER__TAG_TINO":
+                        show_tino_filter = (v != "0")
+                    elif k == "FILTER__TAG_WIRE":
+                        show_wire_filter = (v != "0")
+                else:
+                    # Handle direct values for backward compatibility
+                    initial_sort = line.upper()
+                
+                if initial_sort == "DEFAULT":
+                    initial_sort = "ORIGINAL"
+                # We stay in settings mode until we see NAV or TITEL or empty line
+                continue
+
+            if line.startswith("NAV="):
+                parts = line[4:].split(",")
+                if len(parts) == 2:
+                    nav_items.append({"type": "link", "label": parts[0].strip(), "url": parts[1].strip()})
+            elif line.startswith("TITEL="):
+                page_title = line[6:].strip()
+                nav_items.append({"type": "title", "label": page_title})
+
+        # Automate Navigation for year-based files
+        if is_year_file:
+            auto_nav = []
+            auto_nav.append({"type": "link", "label": "Home", "url": "../index.html"})
+            
+            # Previous Year
+            prev_year = current_year - 1
+            if (input_file.parent / f"{prev_year}.txt").exists():
+                auto_nav.append({"type": "link", "label": str(prev_year), "url": f"{prev_year}.html"})
+                
+            page_title = f"Records in {current_year}"
+            auto_nav.append({"type": "title", "label": page_title})
+            
+            # Next Year
+            next_year = current_year + 1
+            if (input_file.parent / f"{next_year}.txt").exists():
+                auto_nav.append({"type": "link", "label": str(next_year), "url": f"{next_year}.html"})
+                
+            nav_items = auto_nav
 
     # Define Sort UI
     sort_ui = f"""
@@ -330,16 +394,15 @@ def generate_html(input_file, output_file):
 
     # Build Navigation HTML
     # Find all HTML files in export directory for the hamburger menu
-    export_files = []
-    for f in EXPORT_DIR.glob("*.html"):
-        if f.is_file():
-            # If current page is NOT hidden, filter out other hidden pages.
-            # If current page IS hidden, show everything.
-            if not is_hidden_page and f.stem in hidden_lists:
-                continue
-            export_files.append(f.name)
+    if menu_files is not None:
+        export_files = menu_files
+    else:
+        export_files = []
+        for f in EXPORT_DIR.glob("*.html"):
+            if f.is_file():
+                export_files.append(f.name)
+        export_files.sort()
     
-    export_files.sort()
     menu_links_html = "".join([f'        <a href="{f}">{f.replace(".html", "")}</a>\n' for f in export_files])
 
     def build_nav(is_footer=False):
@@ -907,6 +970,7 @@ def generate_html(input_file, output_file):
     return missing_covers
 
 def main():
+    from collections import defaultdict
     while True:
         # 1. Select Input File
         LISTS_DIR.mkdir(exist_ok=True)
@@ -931,70 +995,111 @@ def main():
             break
 
         input_file = file_map[selected_name]
-        # Output file in export/, regardless of where the input file is
         EXPORT_DIR.mkdir(exist_ok=True)
-        # Use full name now that underscores are gone
-        output_file = EXPORT_DIR / f"{input_file.stem}.html"
 
-        missing_covers = generate_html(input_file, output_file)
+        if selected_name == "_full":
+            print("Processing _full list... This will generate all year and decade pages.")
+            content = input_file.read_text(encoding="utf-8")
+            header_end_idx = content.find("TAG_HIDDEN=")
+            if header_end_idx == -1:
+                print("Error: No entries found in _full.txt.")
+                continue
+            records_raw = content[header_end_idx:]
+            blocks = re.split(r'(?=TAG_HIDDEN=)', records_raw)
 
-        # 2. Retry Downloads if needed
-        if missing_covers:
-            print(f"\nThere are {len(missing_covers)} albums missing cover art.")
-            retry_choice = questionary.confirm("Would you like to try downloading the missing covers now?", default=False).ask()
-            
-            if retry_choice:
-                log_cache = {}
-                # Legacy Log laden
-                legacy_log = {}
-                legacy_dirty = False
-                if download_covers.LEGACY_LOG_FILE.exists():
-                    try:
-                        legacy_log = json.loads(download_covers.LEGACY_LOG_FILE.read_text(encoding="utf-8"))
-                    except:
-                        pass
+            years_data = defaultdict(list)
+            decades_data = defaultdict(list)
 
-                for tags in missing_covers:
-                    tag_date = tags.get('DATE', '0000')
-                    album_info = {
-                        "artist": tags.get('ARTIST'),
-                        "album": tags.get('ALBUM'),
-                        "label": tags.get('LABEL'),
-                        "date": tag_date
-                    }
-                    key = f"{album_info['artist']} - {album_info['album']}"
-                    print(f"Processing: {key}")
+            for block in blocks:
+                block = block.strip()
+                if not block:
+                    continue
+                match = re.search(r'TAG_DATE=(\d{4})', block)
+                if match:
+                    year = match.group(1)
+                    years_data[year].append(block)
                     
-                    if tag_date not in log_cache:
-                        log_cache[tag_date] = download_covers.load_log(tag_date)
-                    log_data = log_cache[tag_date]
+                    match_rating = re.search(r'TAG_RATING=(\d+)', block)
+                    if match_rating:
+                        rating = int(match_rating.group(1))
+                        if rating >= 7:
+                            decade = year[:3] + "0s"
+                            decades_data[decade].append(block)
 
-                    ok, source, _ = download_covers.download_cover(album_info, OUTPUT_DIR)
-                    
-                    # Falls im Legacy-Log, löschen wir ihn (da er nun im neuen Log ist)
-                    if key in legacy_log:
-                        del legacy_log[key]
-                        legacy_dirty = True
+            all_years = sorted([int(y) for y in years_data.keys()])
+            all_decades = sorted(list(decades_data.keys()))
 
-                    if key not in log_data:
-                        log_data[key] = {}
-                    log_data[key]["album_art"] = {
-                        "status": "success" if ok else "failed",
-                        "timestamp": time.ctime()
-                    }
-                    if ok:
-                        log_data[key]["album_art"]["source"] = source
-                    else:
-                        log_data[key]["album_art"]["reason"] = source
-                    download_covers.save_log(tag_date, log_data)
-                
-                if legacy_dirty:
-                    download_covers.LEGACY_LOG_FILE.write_text(json.dumps(legacy_log, indent=2, ensure_ascii=False), encoding="utf-8")
-                
-                # Re-generate HTML after downloads to include new covers
-                print("\nUpdating HTML with newly downloaded covers...")
-                generate_html(input_file, output_file)
-        
+            existing_other_htmls = []
+            if EXPORT_DIR.exists():
+                for f in EXPORT_DIR.glob("*.html"):
+                    if f.is_file():
+                        stem = f.stem
+                        is_yr = stem.isdigit() and len(stem) == 4
+                        is_dec = stem.endswith("s") and stem[:-1].isdigit() and len(stem[:-1]) == 4
+                        if not is_yr and not is_dec:
+                            existing_other_htmls.append(f.name)
+
+            menu_files = sorted(existing_other_htmls) + [f"{d}.html" for d in all_decades] + [f"{y}.html" for y in all_years]
+
+            def run_generation():
+                all_missing = []
+                for year_str, blocks_list in sorted(years_data.items()):
+                    records_content = "\n".join(blocks_list)
+                    missing = generate_html(
+                        input_file=None,
+                        output_file=EXPORT_DIR / f"{year_str}.html",
+                        is_year_file=True,
+                        current_year=int(year_str),
+                        records_content=records_content,
+                        menu_files=menu_files,
+                        all_years=all_years
+                    )
+                    all_missing.extend(missing)
+
+                for decade_str, blocks_list in sorted(decades_data.items()):
+                    records_content = "\n".join(blocks_list)
+                    missing = generate_html(
+                        input_file=None,
+                        output_file=EXPORT_DIR / f"{decade_str}.html",
+                        is_year_file=False,
+                        records_content=records_content,
+                        menu_files=menu_files,
+                        is_decade_file=True,
+                        current_decade=decade_str,
+                        all_decades=all_decades
+                    )
+                    all_missing.extend(missing)
+                return all_missing
+
+            all_missing = run_generation()
+
+            # Deduplicate missing covers
+            unique_missing = []
+            seen_missing = set()
+            for tags in all_missing:
+                key = (tags.get('ARTIST', '').lower().strip(), tags.get('ALBUM', '').lower().strip())
+                if key not in seen_missing:
+                    seen_missing.add(key)
+                    unique_missing.append(tags)
+
+            if unique_missing:
+                print(f"\nThere are {len(unique_missing)} albums missing cover art across all years/decades.")
+                retry_choice = questionary.confirm("Would you like to try downloading the missing covers now?", default=False).ask()
+                if retry_choice:
+                    download_missing_covers(unique_missing)
+                    print("\nUpdating all HTML files with newly downloaded covers...")
+                    run_generation()
+        else:
+            output_file = EXPORT_DIR / f"{input_file.stem}.html"
+            missing_covers = generate_html(input_file, output_file)
+            if missing_covers:
+                print(f"\nThere are {len(missing_covers)} albums missing cover art.")
+                retry_choice = questionary.confirm("Would you like to try downloading the missing covers now?", default=False).ask()
+                if retry_choice:
+                    download_missing_covers(missing_covers)
+                    print("\nUpdating HTML with newly downloaded covers...")
+                    generate_html(input_file, output_file)
+
         print("\n" + "="*40 + "\n") # Visual separator before showing list again
 
 if __name__ == "__main__":
