@@ -7,6 +7,7 @@ import json
 import urllib.parse
 import urllib.request
 from pathlib import Path
+import datetime
 
 import questionary
 import download_covers
@@ -278,14 +279,20 @@ def generate_html(input_file, output_file, is_year_file=None, current_year=None,
         if all_years and next_year in all_years:
             auto_nav.append({"type": "link", "label": str(next_year), "url": f"{next_year}.html"})
         nav_items = auto_nav
-        initial_sort = "TAG_RATING"
+        if current_year == datetime.date.today().year:
+            initial_sort = "TAG_ADDED"
+        else:
+            initial_sort = "TAG_RATING"
         show_date = False
         show_tino_filter = True
         show_wire_filter = True
     else:
         nav_items = []
         page_title = "Records"
-        initial_sort = "TAG_RATING"
+        if is_year_file and current_year == datetime.date.today().year:
+            initial_sort = "TAG_ADDED"
+        else:
+            initial_sort = "TAG_RATING"
         show_date = False
         show_tino_filter = True
         show_wire_filter = True
