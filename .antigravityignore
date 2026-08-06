@@ -2,6 +2,8 @@ __pycache__
 album_covers/
 export/
 !export/style-music.css
+!export/2026.html
 lists/
+!lists/2026.txt
 log/
 .sync.ffs_db

@@ -12,4 +12,5 @@ download_log.json
 links_log.json
 export/thumb/
 export/*.html
+export/albums.json
 test_*

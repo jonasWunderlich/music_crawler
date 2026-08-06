@@ -17,6 +17,20 @@ import os
 import re
 import sys
 import time
+
+# ── Architektur-Guard ────────────────────────────────────────────────────────
+# Auf Apple-Silicon muss Python als arm64 laufen, damit Pillow korrekt lädt.
+# Wird das Skript unter Rosetta (x86_64) gestartet, startet es sich selbst
+# transparent als arm64 neu.
+import platform as _platform, subprocess as _subprocess
+if _platform.machine() == "x86_64" and sys.platform == "darwin":
+    _result = _subprocess.run(
+        ["arch", "-arm64", sys.executable] + sys.argv,
+        env=os.environ,
+    )
+    sys.exit(_result.returncode)
+del _platform, _subprocess
+# ─────────────────────────────────────────────────────────────────────────────
 import json
 import html
 import logging
