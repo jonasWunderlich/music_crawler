@@ -1,10 +1,71 @@
 {
-    "search_musicbrainz": true,
-    "search_musicbrainz_missing": false,
-    "search_musicbrainz_full": false,
-    "search_bandcamp": true,
-    "search_bandcamp_missing": false,
-    "ratings": {
+    "library_path": "lists/library.json",
+    "urlCrawler": {
+        "musicbrainz": {
+            "enabled": false,
+            "missing_only": false,
+            "full": false
+        },
+        "bandcamp": {
+            "enabled": true,
+            "missing_only": false
+        }
+    },
+    "pages": {
+        "currentYear": {
+            "enabled": true,
+            "include_hidden": false,
+            "sort": "addedDate",
+            "sort_direction": "desc"
+        },
+        "years": {
+            "enabled": true,
+            "include_hidden": false,
+            "sort": "rating",
+            "sort_direction": "desc"
+        },
+        "decades": {
+            "enabled": true,
+            "include_hidden": false,
+            "minimum_rating": 7,
+            "sort": "rating",
+            "sort_direction": "desc"
+        },
+        "owned": {
+            "enabled": true,
+            "title": "Meine Platten",
+            "filename": "meine-platten.html",
+            "include_hidden": false,
+            "sort": "releaseYear",
+            "sort_direction": "desc"
+        },
+        "wishlist": {
+            "enabled": true,
+            "title": "Meine Wishlist",
+            "filename": "meine-wishlist.html",
+            "include_hidden": false,
+            "sort": "releaseYear",
+            "sort_direction": "desc"
+        },
+        "favorites": {
+            "enabled": true,
+            "title": "Meine Favoriten",
+            "filename": "meine-favoriten.html",
+            "include_hidden": false,
+            "sort": "releaseYear",
+            "sort_direction": "desc"
+        },
+        "samplers": {
+            "enabled": true,
+            "title": "Meine Sampler",
+            "filename": "meine-sampler.html",
+            "label": "Wunderliche Tapes",
+            "include_hidden": true,
+            "sort": "releaseYear",
+            "sort_direction": "desc"
+        }
+    },
+    "ratingHoverMesseges": {
         "1": "It hurts",
         "2": "There is more music in my farts",
         "3": "I feel sleepy",
