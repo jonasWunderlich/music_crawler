@@ -9,8 +9,8 @@ JSON für den Datenbankimport gespeichert.
 Ausgabe: export/albums.json
 
 Felder im Output (entsprechen der Album-Entity):
-  title, artist, releaseYear, addedDate, publisher, genre, style,
-  country, city, rating, reissue, fan, owned, tino, wire, hidden,
+  title, album_artist, artist, releaseYear, addedDate, publisher, genre, style,
+  country, city, rating, reissue, fan, favorite, owned, tino, wire, hidden,
   videoUrl, wikiUrl, discogsUrl, bandcampUrl, rymUrl, mbRating
 """
 
@@ -109,10 +109,12 @@ def safe_bool(value: str | None) -> bool | None:
 def build_album(record: dict, log_index: dict[str, dict]) -> dict:
     """
     Kombiniert einen _full.txt-Eintrag mit den optionalen Log-Daten.
+    Alle Künstler-abhängige Logik (Log-Lookup, Dedup-Key) verwendet ALBUM_ARTIST.
     """
+    album_artist = record.get("ALBUM_ARTIST", "") or record.get("ARTIST", "")
     artist = record.get("ARTIST", "")
     album  = record.get("ALBUM",  "")
-    key    = f"{artist} - {album}"
+    key    = f"{album_artist} - {album}"
 
     log = log_index.get(key, {})
     mb  = log.get("musicbrainz", {})
@@ -136,6 +138,7 @@ def build_album(record: dict, log_index: dict[str, dict]) -> dict:
     video_url     = video_url_raw if video_url_raw and video_url_raw != "?" else None
 
     return {
+        "albumArtist": album_artist or None,
         "artist":      artist or None,
         "title":       album  or None,
         "releaseYear": safe_int(record.get("DATE")),
@@ -148,6 +151,7 @@ def build_album(record: dict, log_index: dict[str, dict]) -> dict:
         "rating":      rating,
         "reissue":     safe_bool(record.get("REISSUE")),
         "fan":         safe_bool(record.get("FAN")),
+        "favorite":    safe_bool(record.get("FAVORITE")),
         "owned":       safe_bool(record.get("OWN")),
         "tino":        safe_bool(record.get("TINO")),
         "wire":        safe_bool(record.get("WIRE")),
@@ -167,15 +171,15 @@ def build_album(record: dict, log_index: dict[str, dict]) -> dict:
 
 def deduplicate(albums: list[dict]) -> list[dict]:
     """
-    Entfernt Duplikate basierend auf (artist, title).
+    Entfernt Duplikate basierend auf (album_artist, title).
     Bei mehreren Einträgen gewinnt der mit dem jüngsten addedDate.
     Einträge ohne Datum werden als älteste behandelt.
     """
-    # Index: (artist, title) → bestes Album bisher
+    # Index: (albumArtist, title) → bestes Album bisher
     best: dict[tuple, dict] = {}
 
     for album in albums:
-        key = (album.get("artist") or "", album.get("title") or "")
+        key = (album.get("albumArtist") or "", album.get("title") or "")
         existing = best.get(key)
 
         if existing is None:
@@ -210,7 +214,7 @@ def main():
     print(f"  → {len(albums_raw)} Einträge → {len(albums)} nach Deduplizierung ({removed} Duplikate entfernt)")
 
     # Statistiken
-    with_log   = sum(1 for a in albums if f"{a['artist']} - {a['title']}" in log_index)
+    with_log   = sum(1 for a in albums if f"{a['albumArtist']} - {a['title']}" in log_index)
     with_wiki  = sum(1 for a in albums if a.get("wikiUrl"))
     with_mb    = sum(1 for a in albums if a.get("mbRating") is not None)
     with_disc  = sum(1 for a in albums if a.get("discogsUrl"))
