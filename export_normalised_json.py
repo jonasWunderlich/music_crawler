@@ -1,8 +1,8 @@
 import json
 
 # Dateipfade anpassen
-INPUT_FILE = "library.json"
-OUTPUT_FILE = "library_normalized.json"
+INPUT_FILE = "lists/library.json"
+OUTPUT_FILE = "export/library_normalized.json"
 
 # Die genauen Feldnamen, wie sie in deinem JSON existieren
 # (In deinem vorherigen JS-Code hießen sie im Plural: genres, styles, labels, albumArtists)
