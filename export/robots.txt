@@ -1,0 +1,55 @@
+# Blockiert alle regulären Suchmaschinen-Crawler
+User-agent: *
+Disallow: /
+
+# KI-Scraper & LLM-Crawler explizit aussperren (OpenAI, Anthropic, Google Gemini, Meta, Perplexity, etc.)
+User-agent: GPTBot
+Disallow: /
+
+User-agent: ChatGPT-User
+Disallow: /
+
+User-agent: ClaudeBot
+Disallow: /
+
+User-agent: Claude-Web
+Disallow: /
+
+User-agent: Anthropic-AI
+Disallow: /
+
+User-agent: Google-Extended
+Disallow: /
+
+User-agent: Meta-ExternalAgent
+Disallow: /
+
+User-agent: Meta-ExternalFetcher
+Disallow: /
+
+User-agent: PerplexityBot
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: Bytespider
+Disallow: /
+
+User-agent: Applebot-Extended
+Disallow: /
+
+User-agent: Amazonbot
+Disallow: /
+
+User-agent: Diffbot
+Disallow: /
+
+User-agent: Cohere-ai
+Disallow: /
+
+User-agent: Omgilibot
+Disallow: /
+
+User-agent: YouBot
+Disallow: /
