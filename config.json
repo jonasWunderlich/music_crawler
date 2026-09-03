@@ -1,7 +1,5 @@
 {
-    "library_path": "lists/library.json",
-    "characterReplacements": {
-        "!!!": "chk-chk-chk"
+    "library_path": "library.json",
     },
     "urlCrawler": {
         "musicbrainz": {

@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 def get_nav_items_for_year(current_year: int, all_years: List[int]) -> List[Dict[str, str]]:
     """Erstellt Navigations-Items für eine Jahres-Seite."""
     nav_items = [
-        {"type": "link", "label": "Home", "url": "../index.html"}
+        {"type": "link", "label": "Home", "url": "./2026.html"}
     ]
     prev_year = current_year - 1
     if prev_year in all_years:
@@ -21,7 +21,7 @@ def get_nav_items_for_year(current_year: int, all_years: List[int]) -> List[Dict
 def get_nav_items_for_decade(current_decade: str, all_decades: List[str]) -> List[Dict[str, str]]:
     """Erstellt Navigations-Items für eine Dekaden-Seite."""
     nav_items = [
-        {"type": "link", "label": "Home", "url": "../index.html"}
+        {"type": "link", "label": "Home", "url": "./2026.html"}
     ]
     if current_decade in all_decades:
         idx = all_decades.index(current_decade)
@@ -43,7 +43,7 @@ def get_nav_items_for_decade(current_decade: str, all_decades: List[str]) -> Lis
 def get_nav_items_for_special(title: str) -> List[Dict[str, str]]:
     """Erstellt Navigations-Items für eine Sonderseite."""
     return [
-        {"type": "link", "label": "Home", "url": "../index.html"},
+        {"type": "link", "label": "Home", "url": "./2026.html"},
         {"type": "title", "label": title}
     ]
 
