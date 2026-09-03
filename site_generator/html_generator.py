@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .navigation import build_nav_html
-from .utils import get_log_path, load_data_log, sanitize_filename, save_data_log
+from .utils import find_cover_file, get_log_path, load_data_log, sanitize_filename, save_data_log
 from .external_links import fetch_bandcamp_links, fetch_musicbrainz_data, get_wikipedia_from_mb
 
 def generate_page_html(
@@ -41,6 +41,7 @@ def generate_page_html(
     search_bc_missing = bc_cfg.get("missing_only", False)
 
     rating_messages = config.get("ratingHoverMesseges") or config.get("ratings") or {}
+    custom_replacements = config.get("characterReplacements") or {}
 
     # Sortier-Controls HTML
     year_button_html = (
@@ -124,11 +125,15 @@ def generate_page_html(
         data_log = data_log_cache[tag_date]
 
         # Prüfen ob Cover vorhanden ist
-        thumb_name = f"{sanitize_filename(display_artist)}--{sanitize_filename(title)}.webp"
-        thumb_path = thumb_dir / tag_date / thumb_name
-        org_name = f"{sanitize_filename(display_artist)}--{sanitize_filename(title)}.jpg"
-        org_path = org_cover_dir / tag_date / org_name
-        cover_found = thumb_path.exists() or org_path.exists()
+        cover_rel_path, cover_found = find_cover_file(
+            display_artist=display_artist,
+            raw_artist=artist_raw,
+            album=title,
+            release_year=tag_date,
+            thumb_dir=thumb_dir,
+            org_dir=org_cover_dir,
+            custom_replacements=custom_replacements
+        )
 
         if log_key not in data_log:
             data_log[log_key] = {}
@@ -194,8 +199,8 @@ def generate_page_html(
         wiki_url = data_log[log_key].get("wikipedia", "")
 
         # Cover HTML
-        if thumb_path.exists():
-            img_html = f'<img src="thumb/{tag_date}/{thumb_name}" alt="{html.escape(title)}" loading="lazy">'
+        if cover_found and cover_rel_path:
+            img_html = f'<img src="{cover_rel_path}" alt="{html.escape(title)}" loading="lazy">'
         else:
             img_html = '<div class="no-cover">NO COVER</div>'
             missing_covers.append(album)

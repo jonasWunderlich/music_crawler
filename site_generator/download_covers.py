@@ -97,19 +97,10 @@ def http_get(url: str, headers: dict = None, timeout: int = 15) -> Optional[byte
         return None
 
 
-def sanitize_filename(name: str) -> str:
-    """Wandelt einen Namen in einen URL-sicheren Dateinamen um."""
-    # Umlaute und Sonderzeichen
-    name = name.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
-    name = name.replace("Ä", "Ae").replace("Ö", "Oe").replace("Ü", "Ue")
-    
-    # Alles außer Buchstaben und Zahlen durch Bindestrich ersetzen
-    name = re.sub(r'[^a-zA-Z0-9]+', '-', name)
-    
-    # Mehrfache Bindestriche reduzieren
-    name = re.sub(r'-+', '-', name)
-    
-    return name.strip("-").lower()[:200]
+try:
+    from .utils import sanitize_filename
+except ImportError:
+    from site_generator.utils import sanitize_filename
 
 
 # ── Persistent Log ────────────────────────────────────────────────────────────
