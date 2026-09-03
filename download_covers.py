@@ -226,7 +226,7 @@ def parse_music_txt(filepath: Path) -> List[Dict[str, str]]:
         if not block: continue
         
         tags = parse_tags(block)
-        artist = tags.get('ARTIST')
+        artist = tags.get('ALBUM_ARTIST') or tags.get('ARTIST')
         album = tags.get('ALBUM')
         if artist and album:
             albums.append({

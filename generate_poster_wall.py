@@ -77,7 +77,7 @@ def download_missing_covers(missing_covers):
     for tags in missing_covers:
         tag_date = tags.get('DATE', '0000')
         album_info = {
-            "artist": tags.get('ARTIST'),
+            "artist": tags.get('ALBUM_ARTIST'),
             "album": tags.get('ALBUM'),
             "label": tags.get('LABEL'),
             "date": tag_date
@@ -472,7 +472,7 @@ def generate_html(input_file, output_file, is_year_file=None, current_year=None,
         
         tags = parse_tags(block)
         tags['_original_index'] = idx
-        artist = tags.get('ARTIST')
+        artist = tags.get('ALBUM_ARTIST') or tags.get('ARTIST')
         album = tags.get('ALBUM')
         if not artist or not album:
             continue
@@ -501,14 +501,14 @@ def generate_html(input_file, output_file, is_year_file=None, current_year=None,
     if initial_sort == "TAG_RATING":
         sorted_records = sorted(
             unique_records.values(), 
-            key=lambda x: (-int(x.get('RATING')) if x.get('RATING', '').isdigit() else 0, x.get('ARTIST', '').lower(), x.get('ALBUM', '').lower())
+            key=lambda x: (-int(x.get('RATING')) if x.get('RATING', '').isdigit() else 0, (x.get('ALBUM_ARTIST') or x.get('ARTIST', '')).lower(), x.get('ALBUM', '').lower())
         )
     elif initial_sort == "TAG_ADDED":
         sorted_records = sorted(unique_records.values(), key=lambda x: x.get('ADDED', '0000-00-00 00:00:00'), reverse=True)
     elif initial_sort == "TAG_ARTIST":
         sorted_records = sorted(
             unique_records.values(), 
-            key=lambda x: (x.get('ARTIST', '').lower(), x.get('ALBUM', '').lower())
+            key=lambda x: ((x.get('ALBUM_ARTIST') or x.get('ARTIST', '')).lower(), x.get('ALBUM', '').lower())
         )
     else: # Fallback for ORIGINAL or anything else
         sorted_records = sorted(
@@ -519,7 +519,9 @@ def generate_html(input_file, output_file, is_year_file=None, current_year=None,
     for tags in sorted_records:
         if tags.get('HIDDEN') == '1':
             continue
-        artist = tags.get('ARTIST')
+        artist = tags.get('ALBUM_ARTIST') or tags.get('ARTIST')
+        artist_raw = tags.get('ARTIST', '')
+        favorite = tags.get('FAVORITE', '0')
         album = tags.get('ALBUM')
         rating = tags.get('RATING', '?')
         label = tags.get('LABEL', '')
@@ -676,7 +678,7 @@ def generate_html(input_file, output_file, is_year_file=None, current_year=None,
             img_html = f'<div class="no-cover">NO COVER</div>'
             missing_covers.append(tags)
 
-        search_data = f"{artist} {album} {label} {country} {city} {genre} {style}".lower()
+        search_data = f"{artist} {artist_raw} {album} {label} {country} {city} {genre} {style}".lower()
         if reissue == '1' or reissue == 'reissue': search_data += " reissue"
         if own == '1' or own == 'own': search_data += " owned"
         if fan == '1' or fan == 'fan': search_data += " favorite fan"
@@ -689,6 +691,7 @@ def generate_html(input_file, output_file, is_year_file=None, current_year=None,
              data-search="{html.escape(search_data)}" 
              data-hidden="{hidden}"
              data-artist="{html.escape(artist)}"
+             data-artist-raw="{html.escape(artist_raw)}"
              data-album="{html.escape(album)}"
              data-rating="{rating if rating.isdigit() else 0}"
              data-genre="{html.escape(genre)}"
@@ -698,6 +701,7 @@ def generate_html(input_file, output_file, is_year_file=None, current_year=None,
              data-reissue="{reissue}"
              data-own="{own}"
              data-fan="{fan}"
+             data-favorite="{favorite}"
              data-tino="{tino}"
              data-wire="{wire}"
              data-added="{html.escape(added)}">
