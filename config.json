@@ -3,7 +3,7 @@
     },
     "urlCrawler": {
         "musicbrainz": {
-            "enabled": false,
+            "enabled": true,
             "missing_only": false,
             "full": false
         },

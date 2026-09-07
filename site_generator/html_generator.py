@@ -168,7 +168,7 @@ def generate_page_html(
         # MusicBrainz Crawler Check
         mb_entry = data_log[log_key].get("musicbrainz")
         needs_mb_search = False
-        if search_mb and not cover_found:
+        if search_mb and page_type == 'year':
             if search_mb_full:
                 needs_mb_search = True
             elif "musicbrainz" not in data_log[log_key]:
