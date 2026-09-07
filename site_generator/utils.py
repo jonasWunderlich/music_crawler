@@ -83,7 +83,7 @@ def load_replacements(path: Path = REPLACEMENTS_FILE) -> Dict[str, Any]:
     return _REPLACEMENTS_CACHE
 
 def sanitize_name(
-    text: str,
+    text: Any,
     is_artist: bool = False,
     is_album: bool = False,
     max_length: int = 80,
@@ -101,6 +101,9 @@ def sanitize_name(
     """
     if not text:
         return "unknown"
+
+    if isinstance(text, (list, tuple)):
+        text = ", ".join(str(item).strip() for item in text if item)
 
     rep = replacements_data or load_replacements()
     artist_map = rep.get("artists", {})
@@ -148,7 +151,7 @@ def sanitize_name(
     return t or "unknown"
 
 def sanitize_filename(
-    name: str,
+    name: Any,
     custom_replacements: Optional[Dict[str, str]] = None,
     is_artist: bool = False,
     is_album: bool = False,
@@ -177,18 +180,121 @@ def sanitize_filename(
         replacements_data=rep
     )
 
-def legacy_sanitize_filename(name: str) -> str:
+def legacy_sanitize_filename(name: Any) -> str:
     """
     Frühere Sanitize-Funktion (nur deutsche Umlaute ersetzt, sonst alles [^a-zA-Z0-9] -> '-').
     Wird als Fallback für bestehende Cover-Dateien auf der Festplatte genutzt.
     """
     if not name:
         return "unknown"
+    if isinstance(name, (list, tuple)):
+        name = "; ".join(str(item).strip() for item in name if item)
+    name = str(name)
     name = name.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
     name = name.replace("Ä", "Ae").replace("Ö", "Oe").replace("Ü", "Ue")
     name = re.sub(r"[^a-zA-Z0-9]+", "-", name)
     name = re.sub(r"-+", "-", name)
     return name.strip("-").lower()[:200]
+
+def get_cover_stem(
+    artist: Any,
+    album: Any,
+    naming_config: Optional[Dict[str, Any]] = None,
+    custom_replacements: Optional[Dict[str, str]] = None,
+    replacements_data: Optional[Dict[str, Any]] = None,
+) -> str:
+    """
+    Erzeugt den kanonischen Cover-Dateinamen-Stamm (ohne Endung) im Format:
+    '{artist_slug}--{album_slug}'
+    unter Berücksichtigung von replacements.json und Konfiguration.
+    """
+    n_cfg = naming_config or {}
+    max_artist = n_cfg.get("max_artist_length", 80)
+    max_album = n_cfg.get("max_album_length", 80)
+    space_char = n_cfg.get("space_replacement", "_")
+
+    rep = replacements_data or load_replacements()
+    if custom_replacements:
+        rep_merged = {
+            "artists": dict(rep.get("artists", {})),
+            "albums": dict(rep.get("albums", {})),
+            "characters": dict(rep.get("characters", {})),
+        }
+        rep_merged["characters"].update(custom_replacements)
+        rep = rep_merged
+
+    artist_slug = sanitize_name(
+        artist,
+        is_artist=True,
+        max_length=max_artist,
+        space_replacement=space_char,
+        replacements_data=rep,
+    )
+    album_slug = sanitize_name(
+        album,
+        is_album=True,
+        max_length=max_album,
+        space_replacement=space_char,
+        replacements_data=rep,
+    )
+    return f"{artist_slug}--{album_slug}"
+
+def get_cover_filename(
+    artist: Any,
+    album: Any,
+    extension: str = "webp",
+    naming_config: Optional[Dict[str, Any]] = None,
+    custom_replacements: Optional[Dict[str, str]] = None,
+    replacements_data: Optional[Dict[str, Any]] = None,
+) -> str:
+    """
+    Erzeugt den vollständigen Cover-Dateinamen mit Dateiendung (z.B. 'artist--album.webp').
+    """
+    stem = get_cover_stem(
+        artist=artist,
+        album=album,
+        naming_config=naming_config,
+        custom_replacements=custom_replacements,
+        replacements_data=replacements_data,
+    )
+    ext = extension.lstrip(".")
+    return f"{stem}.{ext}" if ext else stem
+
+def generate_cover_url(
+    release_year: Any,
+    artist: Any,
+    album_title: Any,
+    base_dir: str = "cover",
+    extension: str = "webp",
+    naming_config: Optional[Dict[str, Any]] = None,
+    custom_replacements: Optional[Dict[str, str]] = None,
+    replacements_data: Optional[Dict[str, Any]] = None,
+) -> Optional[str]:
+    """
+    Generiert den relativen Cover-Pfad / URL für eine Veröffentlichung
+    (z.B. 'cover/1972/artist--album.webp').
+    Gibt None zurück, falls release_year, artist oder album_title leer sind.
+    """
+    if not release_year or not artist or not album_title:
+        return None
+
+    clean_year = str(release_year).strip()
+    if not clean_year or clean_year == "None":
+        clean_year = "0000"
+
+    filename = get_cover_filename(
+        artist=artist,
+        album=album_title,
+        extension=extension,
+        naming_config=naming_config,
+        custom_replacements=custom_replacements,
+        replacements_data=replacements_data,
+    )
+
+    clean_base = base_dir.strip("/")
+    if clean_base:
+        return f"{clean_base}/{clean_year}/{filename}"
+    return f"{clean_year}/{filename}"
 
 def find_cover_file(
     display_artist: str,
@@ -212,9 +318,6 @@ def find_cover_file(
     """
     tag_date = str(release_year).strip() or "0000"
     n_cfg = naming_config or {}
-    max_artist_len = n_cfg.get("max_artist_length", 80)
-    max_album_len = n_cfg.get("max_album_length", 80)
-    space_char = n_cfg.get("space_replacement", "_")
 
     rep = load_replacements()
     if custom_replacements:
@@ -232,9 +335,12 @@ def find_cover_file(
 
     # 1. Moderne Namen prüfen
     for a in artists:
-        a_clean = sanitize_name(a, is_artist=True, max_length=max_artist_len, space_replacement=space_char, replacements_data=rep)
-        alb_clean = sanitize_name(album, is_album=True, max_length=max_album_len, space_replacement=space_char, replacements_data=rep)
-        modern_stem = f"{a_clean}--{alb_clean}"
+        modern_stem = get_cover_stem(
+            a,
+            album,
+            naming_config=n_cfg,
+            replacements_data=rep
+        )
 
         m_webp = thumb_dir / tag_date / f"{modern_stem}.webp"
         if m_webp.exists():
@@ -257,9 +363,13 @@ def find_cover_file(
             return f"../album_covers/org/{tag_date}/{l_stem}.jpg", True
 
     # Standard-Pfad für den Fall, dass kein Cover existiert
-    def_a = sanitize_name(display_artist, is_artist=True, max_length=max_artist_len, space_replacement=space_char, replacements_data=rep)
-    def_alb = sanitize_name(album, is_album=True, max_length=max_album_len, space_replacement=space_char, replacements_data=rep)
-    return f"thumb/{tag_date}/{def_a}--{def_alb}.webp", False
+    def_stem = get_cover_stem(
+        display_artist,
+        album,
+        naming_config=n_cfg,
+        replacements_data=rep
+    )
+    return f"thumb/{tag_date}/{def_stem}.webp", False
 
 def get_log_path(tag_date: str, log_dir: Path = Path("log")) -> Path:
     """Gibt den Pfad zur Log-Datei für das gegebene Jahr zurück."""

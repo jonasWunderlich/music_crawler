@@ -98,9 +98,9 @@ def http_get(url: str, headers: dict = None, timeout: int = 15) -> Optional[byte
 
 
 try:
-    from .utils import sanitize_filename
+    from .utils import sanitize_filename, get_cover_stem, get_cover_filename
 except ImportError:
-    from site_generator.utils import sanitize_filename
+    from site_generator.utils import sanitize_filename, get_cover_stem, get_cover_filename
 
 
 # ── Persistent Log ────────────────────────────────────────────────────────────
@@ -339,7 +339,7 @@ def fuzzy_local_search(artist: str, album: str, search_dirs: List[Path], thresho
         log.warning("thefuzz ist nicht installiert. Fuzzy search deaktiviert.")
         return None
 
-    target_name = f"{sanitize_filename(artist, is_artist=True)}--{sanitize_filename(album, is_album=True)}"
+    target_name = get_cover_stem(artist, album)
     best_match = None
     best_score = 0
     
@@ -374,7 +374,7 @@ def download_cover(album_info: dict, output_dir: Path) -> tuple[bool, Optional[s
     album  = album_info["album"]
     tag_date = album_info.get("date", "0000")
     
-    filename = f"{sanitize_filename(artist, is_artist=True)}--{sanitize_filename(album, is_album=True)}.jpg"
+    filename = get_cover_filename(artist, album, extension="jpg")
     
     # Neuer Zielpfad
     dest_dir = ALBUM_COVERS_ORG / tag_date
@@ -534,7 +534,7 @@ def update_html_with_covers(input_path: Path, output_path: Path, output_dir: Pat
         else:
             artist = td_text(tds[1]); album = td_text(tds[2])
 
-        thumb_name = f"{sanitize_filename(artist, is_artist=True)}--{sanitize_filename(album, is_album=True)}.webp"
+        thumb_name = get_cover_filename(artist, album, extension="webp")
         thumb_path = thumb_dir / thumb_name
         
         if thumb_path.exists():

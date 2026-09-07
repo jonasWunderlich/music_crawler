@@ -10,47 +10,13 @@ YEARS_OUTPUT_FILE = "/Users/za_jonas/repos/hss/Quarkus/src/main/resources/releas
 COVER_BASE_DIR = "cover"  # Basis-Ordner für Cover-Pfade (z. B. "cover/1972/artist--album.webp")
 
 
-def sanitize_filename(name) -> str:
-    """
-    1:1 die exakte Funktion aus dem Album Cover Downloader.
-    Unterstützt Strings und Arrays (Array-Elemente werden wie in music.txt mit '; ' gefügt).
-    """
-    if not name:
-        return ""
-
-    if isinstance(name, list):
-        name = "; ".join([str(item) for item in name if item])
-
-    name = str(name)
-
-    # 1. Umlaute und Sonderzeichen
-    name = name.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
-    name = name.replace("Ä", "Ae").replace("Ö", "Oe").replace("Ü", "Ue")
-
-    # 2. Alles außer Buchstaben und Zahlen durch Bindestrich ersetzen
-    name = re.sub(r'[^a-zA-Z0-9]+', '-', name)
-
-    # 3. Mehrfache Bindestriche reduzieren
-    name = re.sub(r'-+', '-', name)
-
-    # 4. Bindestriche am Rand entfernen, in Lowercase umwandeln & max. 200 Zeichen
-    return name.strip("-").lower()[:200]
-
-
-def generate_cover_url(release_year, artist, album_title):
-    if not release_year or not artist or not album_title:
-        return None
-
-    artist_slug = sanitize_filename(artist)
-    album_slug = sanitize_filename(album_title)
-
-    if not artist_slug:
-        artist_slug = "unknown-artist"
-
-    if not album_slug:
-        album_slug = "unknown-album"
-
-    return f"{COVER_BASE_DIR}/{release_year}/{artist_slug}--{album_slug}.webp"
+try:
+    from site_generator.utils import generate_cover_url
+except ImportError:
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent))
+    from site_generator.utils import generate_cover_url
 
 
 def normalize_string(val):
@@ -175,7 +141,7 @@ def main():
 
         # 1. urlCover deterministisch generieren (falls nicht vorhanden)
         if not item.get("urlCover"):
-            generated_url = generate_cover_url(release_year, artist, album_title)
+            generated_url = generate_cover_url(release_year, artist, album_title, base_dir=COVER_BASE_DIR)
             if generated_url:
                 item["urlCover"] = generated_url
                 covers_generated += 1
