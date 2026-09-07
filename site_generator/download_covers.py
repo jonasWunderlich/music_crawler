@@ -339,7 +339,7 @@ def fuzzy_local_search(artist: str, album: str, search_dirs: List[Path], thresho
         log.warning("thefuzz ist nicht installiert. Fuzzy search deaktiviert.")
         return None
 
-    target_name = f"{sanitize_filename(artist)}--{sanitize_filename(album)}"
+    target_name = f"{sanitize_filename(artist, is_artist=True)}--{sanitize_filename(album, is_album=True)}"
     best_match = None
     best_score = 0
     
@@ -374,7 +374,7 @@ def download_cover(album_info: dict, output_dir: Path) -> tuple[bool, Optional[s
     album  = album_info["album"]
     tag_date = album_info.get("date", "0000")
     
-    filename = f"{sanitize_filename(artist)}--{sanitize_filename(album)}.jpg"
+    filename = f"{sanitize_filename(artist, is_artist=True)}--{sanitize_filename(album, is_album=True)}.jpg"
     
     # Neuer Zielpfad
     dest_dir = ALBUM_COVERS_ORG / tag_date
@@ -534,7 +534,7 @@ def update_html_with_covers(input_path: Path, output_path: Path, output_dir: Pat
         else:
             artist = td_text(tds[1]); album = td_text(tds[2])
 
-        thumb_name = f"{sanitize_filename(artist)} - {sanitize_filename(album)}.jpg"
+        thumb_name = f"{sanitize_filename(artist, is_artist=True)}--{sanitize_filename(album, is_album=True)}.webp"
         thumb_path = thumb_dir / thumb_name
         
         if thumb_path.exists():

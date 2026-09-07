@@ -1,5 +1,10 @@
 {
     "library_path": "library.json",
+    "naming": {
+        "replacements_file": "replacements.json",
+        "space_replacement": "_",
+        "max_artist_length": 80,
+        "max_album_length": 80
     },
     "urlCrawler": {
         "musicbrainz": {

@@ -42,6 +42,7 @@ def generate_page_html(
 
     rating_messages = config.get("ratingHoverMesseges") or config.get("ratings") or {}
     custom_replacements = config.get("characterReplacements") or {}
+    naming_config = config.get("naming") or {}
 
     # Sortier-Controls HTML
     year_button_html = (
@@ -132,6 +133,7 @@ def generate_page_html(
             release_year=tag_date,
             thumb_dir=thumb_dir,
             org_dir=org_cover_dir,
+            naming_config=naming_config,
             custom_replacements=custom_replacements
         )
 
