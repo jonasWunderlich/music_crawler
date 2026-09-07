@@ -3,7 +3,7 @@ import os
 import re
 
 # --- EINSTELLUNGEN ---
-LIBRARY_FILE = "lists/library.json"  # Deine bestehende Hauptdatei
+LIBRARY_FILE = "library.json"  # Deine bestehende Hauptdatei
 ENRICH_DIR = "./log"  # Ordner mit 2026.json, 1954.json etc.
 OUTPUT_FILE = "/Users/za_jonas/repos/hss/Quarkus/src/main/resources/library.json"  # Output-Datei
 YEARS_OUTPUT_FILE = "/Users/za_jonas/repos/hss/Quarkus/src/main/resources/releaseYears.json"  # Output-Datei

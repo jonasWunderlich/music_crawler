@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 generate_site.py - Hauptprogramm / CLI für den statischen Musik-Webseiten-Generator.
-Liest lists/library.json und config.json und generiert alle konfigurierten Seiten.
+Liest library.json und config.json und generiert alle konfigurierten Seiten.
 """
 
 import argparse
