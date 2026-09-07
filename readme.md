@@ -333,18 +333,12 @@ This script needs to uses the same implementation for normalizing cover file nam
 
 ## Future Development
 
-- if in the log for the album there is a url at ***ALBUM_LINK***, it should be used as a link in the album tile on the album name.
-- add/move ***string replacements*** in external replacements.json
-  - for special characters and international characters
-  - for complicated artist names
-  - for complicated album names
-- ***cover migration***
-rename existing cover files in album_covers/org and export/thumbs and use updated naming
-- ***cover replacements***
-in folder album_covers/replacements there are images of covers that should replace the existing images. After a cover has been replaced, the image file from replacements should be deleted again.
-- ***Expand build log***
-    - all records without Musicbrainz metadata
-    - all records without cover art
+- if in the log for the album there is a url at ***ALBUM_LINK***, it should be used as a link in the album title on the album name.
+
+***Add logs after build***
+
+- all records without Musicbrainz metadata
+- all records without cover art
 
 ***Show More Metadata***
 
