@@ -53,8 +53,9 @@ except ImportError:
 
 LAST_FM_API_KEY = os.environ.get("LAST_FM_API_KEY", "")   # optional
 OUTPUT_DIR       = Path("covers")
-ORIGINAL_DIR     = Path("album_covers/legacy")
 LOCAL_SEARCH_DIR = Path("album_covers/local")
+REPLACEMENTS_DIR = Path("album_covers/replacements")
+PROCESSED_DIR    = Path("album_covers/processed")
 THUMB_SIZE       = 400           # Breite der Thumbnail-Version in Pixel
 MAX_ORIGINAL_WIDTH = 1400       # Maximale Breite für das "Original"-Cover
 DELAY_BETWEEN   = 1.0           # Sekunden zwischen API-Anfragen (Rate-Limit)
@@ -67,7 +68,6 @@ ALBUM_COVERS_ORG   = Path("album_covers/org")
 ALBUM_COVERS_THUMB = Path("export/thumb")
 LISTS_DIR          = Path("lists")
 EXPORT_DIR         = Path("export")
-LOG_DIR            = Path("log")
 FUZZY_THRESHOLD    = 90  # Tolerance for fuzzy search (0-100)
 LEGACY_LOG_FILE    = Path("log/legacy/download_status.json")
 
@@ -333,6 +333,20 @@ def try_itunes(artist: str, album: str) -> Optional[bytes]:
 
 # ── Hauptlogik ────────────────────────────────────────────────────────────────
 
+def move_to_processed(source_path: Path, processed_dir: Path = PROCESSED_DIR) -> Path:
+    """Verschiebt eine erfolgreich verarbeitete Bilddatei in den processed-Ordner."""
+    processed_dir.mkdir(parents=True, exist_ok=True)
+    target_path = processed_dir / source_path.name
+    if target_path.exists():
+        stem = source_path.stem
+        suffix = source_path.suffix
+        timestamp = int(time.time())
+        target_path = processed_dir / f"{stem}_{timestamp}{suffix}"
+    shutil.move(str(source_path), str(target_path))
+    log.info("  → Datei nach %s verschoben", target_path)
+    return target_path
+
+
 def fuzzy_local_search(artist: str, album: str, search_dirs: List[Path], threshold: int) -> Optional[Path]:
     """Sucht fuzzy nach einer Bilddatei in den angegebenen Ordnern."""
     if not fuzz:
@@ -357,7 +371,9 @@ def fuzzy_local_search(artist: str, album: str, search_dirs: List[Path], thresho
                 
             # Sowohl Query als auch Dateiname normalisieren für den Vergleich
             clean_stem = sanitize_filename(f.stem)
-            score = fuzz.ratio(target_name, clean_stem)
+            norm_target = re.sub(r'[\s_\-]+', ' ', target_name.lower()).strip()
+            norm_clean = re.sub(r'[\s_\-]+', ' ', clean_stem.lower()).strip()
+            score = max(fuzz.ratio(target_name, clean_stem), fuzz.ratio(norm_target, norm_clean))
             if score > best_score:
                 best_score = score
                 best_match = f
@@ -380,12 +396,22 @@ def download_cover(album_info: dict, output_dir: Path) -> tuple[bool, Optional[s
     dest_dir = ALBUM_COVERS_ORG / tag_date
     dest_path = dest_dir / filename
     
-    # 0. Check ob bereits am Zielort vorhanden (Original UND Thumbnail)
+    # 0. Replacements Search (ersetzt auch bereits vorhandene Cover)
+    if REPLACEMENTS_DIR.exists():
+        found_replacement = fuzzy_local_search(artist, album, [REPLACEMENTS_DIR], FUZZY_THRESHOLD)
+        if found_replacement:
+            log.info("  ✓ Replacement-Cover gefunden: %s", found_replacement.name)
+            data = found_replacement.read_bytes()
+            save_cover_to_new_structure(data, filename, tag_date)
+            move_to_processed(found_replacement, PROCESSED_DIR)
+            return True, f"Replacement ({found_replacement.name})", filename
+
+    # 1. Check ob bereits am Zielort vorhanden (Original UND Thumbnail)
     thumb_path = ALBUM_COVERS_THUMB / tag_date / (Path(filename).stem + ".webp")
     if dest_path.exists() and thumb_path.exists():
         return True, "Bereits vorhanden", filename
     
-    # 0b. Falls Original existiert aber Thumb fehlt: Thumb generieren
+    # 1b. Falls Original existiert aber Thumb fehlt: Thumb generieren
     if dest_path.exists() and not thumb_path.exists():
         log.info("  → Original vorhanden, generiere fehlendes Thumbnail...")
         data = dest_path.read_bytes()
@@ -394,14 +420,16 @@ def download_cover(album_info: dict, output_dir: Path) -> tuple[bool, Optional[s
 
     log.info("Suche Cover: %s – %s (%s)", artist, album, tag_date)
     
-    # 1. Fuzzy Local Search (zuerst local, dann original)
-    found_local = fuzzy_local_search(artist, album, [LOCAL_SEARCH_DIR, ORIGINAL_DIR], FUZZY_THRESHOLD)
-    if found_local:
-        data = found_local.read_bytes()
-        save_cover_to_new_structure(data, filename, tag_date)
-        return True, f"Local ({found_local.parent.name})", filename
+    # 2. Lokale Suche in album_covers/local (nach Verarbeitung nach processed verschieben)
+    if LOCAL_SEARCH_DIR.exists():
+        found_local = fuzzy_local_search(artist, album, [LOCAL_SEARCH_DIR], FUZZY_THRESHOLD)
+        if found_local:
+            data = found_local.read_bytes()
+            save_cover_to_new_structure(data, filename, tag_date)
+            move_to_processed(found_local, PROCESSED_DIR)
+            return True, f"Local ({found_local.name})", filename
 
-    # 2. API Suche (Bestands-Logik)
+    # 3. API Suche (Bestands-Logik)
     def try_all_apis(search_artist: str, search_album: str) -> Optional[tuple[bytes, str]]:
         # Bandcamp (Best Quality)
         data = try_bandcamp(search_artist, search_album, tag_date)
@@ -465,39 +493,102 @@ def save_cover_to_new_structure(data: bytes, filename: str, tag_date: str):
     except Exception as e:
         log.error("! Fehler beim Speichern: %s", e)
 
-def save_cover(data: bytes, filepath: Path, output_dir: Path, filename: str):
-    # Skalieren und speichern
+def process_replacements(library_file: Path = Path("library.json")) -> int:
+    """
+    Durchsucht album_covers/replacements und ersetzt passende Cover in der Library.
+    Verschiebt ersetzte Dateien nach album_covers/processed.
+    """
+    if not REPLACEMENTS_DIR.exists():
+        return 0
+
+    extensions = [".jpg", ".jpeg", ".png", ".webp"]
+    rep_files = [f for f in REPLACEMENTS_DIR.glob("*") if f.suffix.lower() in extensions]
+    if not rep_files:
+        return 0
+
+    log.info("Verarbeite Replacements: %d Dateien in %s gefunden.", len(rep_files), REPLACEMENTS_DIR)
+    if not library_file.exists():
+        log.warning("Library-Datei %s nicht gefunden für Replacements-Verarbeitung.", library_file)
+        return 0
+
     try:
-        from PIL import Image
-        import io
-        img = Image.open(io.BytesIO(data)).convert("RGB")
-        
-        # Original in covers/original/
-        orig_dir = ORIGINAL_DIR
-        orig_dir.mkdir(parents=True, exist_ok=True)
-        orig_filepath = orig_dir / filename
-        if img.width > MAX_ORIGINAL_WIDTH:
-            new_h = round(img.height * MAX_ORIGINAL_WIDTH / img.width)
-            img = img.resize((MAX_ORIGINAL_WIDTH, new_h), Image.LANCZOS)
-            img.save(orig_filepath, "JPEG", quality=95)
-        else:
-            orig_filepath.write_bytes(data)
-        
-        # Thumbnail in covers/thumbs/ (WebP)
-        thumb_dir = output_dir / "thumbs"
-        thumb_dir.mkdir(exist_ok=True)
-        new_h_thumb = round(img.height * THUMB_SIZE / img.width)
-        thumb = img.resize((THUMB_SIZE, new_h_thumb), Image.LANCZOS)
-        thumb_filename = Path(filename).stem + ".webp"
-        thumb.save(thumb_dir / thumb_filename, "WEBP", quality=85)
-        log.info("  → Original gespeichert in org/: %s", filename)
-        log.info("  → Thumbnail (%dx%dpx) als WebP gespeichert in thumbs/", THUMB_SIZE, new_h_thumb)
-    except ImportError:
-        ORIGINAL_DIR.mkdir(parents=True, exist_ok=True)
-        (ORIGINAL_DIR / filename).write_bytes(data)
-        log.error("! Fehler beim Verarbeiten des Originals: No module named 'PIL'")
+        with open(library_file, "r", encoding="utf-8") as f:
+            library = json.load(f)
     except Exception as e:
-        log.error("! Fehler beim Thumbnail: %s", e)
+        log.error("Fehler beim Laden von %s: %s", library_file, e)
+        return 0
+
+    albums = library if isinstance(library, list) else library.get("albums", [])
+    replaced_count = 0
+    log_cache = {}
+
+    for rep_file in list(rep_files):
+        file_stem = rep_file.stem
+        if " - " in file_stem:
+            a_part, alb_part = file_stem.split(" - ", 1)
+        elif "--" in file_stem:
+            a_part, alb_part = file_stem.split("--", 1)
+        else:
+            a_part, alb_part = file_stem, ""
+
+        target_stem = get_cover_stem(a_part, alb_part)
+        matched_album = None
+
+        # 1. Exakter Match auf get_cover_stem
+        for item in albums:
+            art = item.get("albumArtist") or item.get("artist")
+            alb = item.get("title") or item.get("album")
+            if get_cover_stem(art, alb) == target_stem:
+                matched_album = item
+                break
+
+        # 2. Fuzzy Match falls kein exakter Treffer
+        if not matched_album and fuzz:
+            best_score = 0
+            norm_target = re.sub(r'[\s_\-]+', ' ', target_stem.lower()).strip()
+            for item in albums:
+                art = item.get("albumArtist") or item.get("artist")
+                alb = item.get("title") or item.get("album")
+                stem = get_cover_stem(art, alb)
+                norm_stem = re.sub(r'[\s_\-]+', ' ', stem.lower()).strip()
+                score = max(fuzz.ratio(target_stem, stem), fuzz.ratio(norm_target, norm_stem))
+                if score > best_score:
+                    best_score = score
+                    if score >= FUZZY_THRESHOLD:
+                        matched_album = item
+                        if score == 100:
+                            break
+
+        if matched_album:
+            art = matched_album.get("albumArtist") or matched_album.get("artist")
+            alb = matched_album.get("title") or matched_album.get("album")
+            tag_date = str(matched_album.get("releaseYear") or matched_album.get("year") or "0000").strip()
+            filename = get_cover_filename(art, alb, extension="jpg")
+
+            data = rep_file.read_bytes()
+            save_cover_to_new_structure(data, filename, tag_date)
+            move_to_processed(rep_file, PROCESSED_DIR)
+            replaced_count += 1
+
+            # Log für das Jahr aktualisieren
+            if tag_date not in log_cache:
+                log_cache[tag_date] = load_log(tag_date)
+            log_data = log_cache[tag_date]
+            key = f"{art} - {alb}"
+            if key not in log_data:
+                log_data[key] = {}
+            log_data[key]["album_art"] = {
+                "status": "success",
+                "timestamp": time.ctime(),
+                "source": f"Replacement ({rep_file.name})"
+            }
+            save_log(tag_date, log_data)
+            log.info("  ✓ [%d/%d] Replacement angewendet: %s -> %s/%s", replaced_count, len(rep_files), rep_file.name, tag_date, filename)
+        else:
+            log.warning("  ✗ Kein passendes Album in Library gefunden für: %s", rep_file.name)
+
+    log.info("Replacements abgeschlossen: %d von %d Dateien ersetzt und nach %s verschoben.", replaced_count, len(rep_files), PROCESSED_DIR)
+    return replaced_count
 
 def update_html_with_covers(input_path: Path, output_path: Path, output_dir: Path) -> None:
     content = input_path.read_text(encoding="utf-8")
@@ -563,6 +654,10 @@ def update_html_with_covers(input_path: Path, output_path: Path, output_dir: Pat
 
 def download_missing_covers(missing_covers: list, output_dir: Path = ALBUM_COVERS_ORG) -> None:
     """Lädt Cover für eine Liste von Alben herunter und aktualisiert die Logs."""
+    # 0. Replacements vorab verarbeiten, falls vorhanden
+    if REPLACEMENTS_DIR.exists():
+        process_replacements()
+
     log_cache = {}
     legacy_log = {}
     legacy_dirty = False
@@ -613,11 +708,26 @@ def download_missing_covers(missing_covers: list, output_dir: Path = ALBUM_COVER
         LEGACY_LOG_FILE.write_text(json.dumps(legacy_log, indent=2, ensure_ascii=False), encoding="utf-8")
 
 def main():
+    parser = argparse.ArgumentParser(description="Cover Downloader & Manager")
+    parser.add_argument("--replacements", action="store_true", help="Cover aus album_covers/replacements verarbeiten und nach processed verschieben")
+    args, unknown = parser.parse_known_args()
+
+    if args.replacements:
+        process_replacements()
+        return
+
+    # Falls Replacements vorhanden sind, diese direkt verarbeiten
+    if REPLACEMENTS_DIR.exists():
+        rep_files = [f for f in REPLACEMENTS_DIR.glob("*") if f.suffix.lower() in [".jpg", ".jpeg", ".png", ".webp"]]
+        if rep_files:
+            log.info("Es wurden %d Replacement-Cover in %s gefunden. Verarbeite diese...", len(rep_files), REPLACEMENTS_DIR)
+            process_replacements()
+
     try:
         import questionary
     except ImportError:
-        log.error("Bitte installiere questionary: pip install questionary")
-        sys.exit(1)
+        log.warning("questionary ist nicht installiert. Für interaktive Listenauswahl: pip install questionary")
+        return
 
     # 1. Dateien suchen (*.txt) in lists/
     LISTS_DIR.mkdir(exist_ok=True)
@@ -625,8 +735,8 @@ def main():
         list(LISTS_DIR.glob("*.txt"))
     )
     if not source_files:
-        log.error("Keine Dateien mit Format *.txt gefunden (auch nicht in %s).", LISTS_DIR)
-        sys.exit(1)
+        log.info("Keine Dateien mit Format *.txt in %s gefunden.", LISTS_DIR)
+        return
 
     file_map = {f.stem: f for f in source_files}
     choices = sorted(list(file_map.keys()), reverse=True)
